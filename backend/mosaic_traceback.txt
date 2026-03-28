@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "C:\Users\Siddhant\et-mosaic\backend\agents\mosaic_builder.py", line 146, in find_connections
+    return await self._find_connections_impl(extractions)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Siddhant\et-mosaic\backend\agents\mosaic_builder.py", line 271, in _find_connections_impl
+    self._write_graph_data(connections, all_articles)
+  File "C:\Users\Siddhant\et-mosaic\backend\agents\mosaic_builder.py", line 557, in _write_graph_data
+    sector_groups[sector].append(article["id"])
+    ~~~~~~~~~~~~~^^^^^^^^
+TypeError: unhashable type: 'list'

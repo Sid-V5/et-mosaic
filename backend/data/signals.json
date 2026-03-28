@@ -1,0 +1,111 @@
+[
+  {
+    "id": "a96520bb",
+    "headline": "US Stock Futures Gain on Mideast Ceasefire Hopes",
+    "summary": "Data shows a positive sentiment shift in the market, with US stock futures gaining. Historical base rate of sentiment velocity signals is 73% accurate.",
+    "what_to_watch": "US stock futures movement over the next trading session",
+    "signal_type": "SENTIMENT_VELOCITY",
+    "severity": "medium",
+    "freshness": "RECENT",
+    "confidence": 60.0,
+    "sources": [
+      {
+        "title": "US Stocks Today | US stock futures gain on Mideast ceasefire hopes",
+        "source": "ET Markets",
+        "url": "https://economictimes.indiatimes.com/markets/us-stocks/news/us-stocks-today-us-stock-futures-gain-on-mideast-ceasefire-hopes/articleshow/129800325.cms"
+      },
+      {
+        "title": "Dow Jones Futures Rise, Oil Prices Tumble On Cautious Hopes For Iran Peace Deal",
+        "source": "Yahoo Finance",
+        "url": "https://www.investors.com/market-trend/stock-market-today/dow-jones-futures-oil-prices-trump-iran-talking-sense/?src=A00220&yptr=yahoo"
+      }
+    ],
+    "contagion_note": "Signal isolated to Unknown.",
+    "historical_match": 0.73,
+    "similarity": 0.0,
+    "sentiment_velocity": 0.35,
+    "market_data_confirmation": 0.0,
+    "portfolio_relevance": "none",
+    "action_recommendation": {
+      "type": "INCREASE_MONITORING",
+      "reasoning": "The sentiment velocity signal indicates a potential market shift, and monitoring US stock futures movement is crucial for further analysis.",
+      "confidence": 60.0
+    },
+    "audio_path": "C:\\Users\\Siddhant\\et-mosaic\\backend\\data\\audio\\a96520bb.mp3",
+    "disclaimer": "This is for research only. Not investment advice.",
+    "company_names": [
+      "Unknown"
+    ],
+    "nse_tickers": [],
+    "bulk_deals": [],
+    "price_data": {},
+    "technical": {},
+    "contagion_type": "isolated",
+    "affected_peers": [],
+    "sector": "Financials"
+  },
+  {
+    "id": "3c29a7ce",
+    "headline": "Signal requires manual review",
+    "summary": "Cross-source convergence detected.",
+    "what_to_watch": "Check source articles directly.",
+    "signal_type": "TRIPLE_THREAT",
+    "severity": "medium",
+    "freshness": "RECENT",
+    "confidence": 15,
+    "sources": [
+      {
+        "title": "US Stocks Today | US stock futures gain on Mideast ceasefire hopes",
+        "source": "ET Markets",
+        "url": "https://economictimes.indiatimes.com/markets/us-stocks/news/us-stocks-today-us-stock-futures-gain-on-mideast-ceasefire-hopes/articleshow/129800325.cms"
+      },
+      {
+        "title": "US-Iran conflict to hit Q4FY26 earnings, supply chain restoration may take 1-2 months: Report",
+        "source": "ET Economy",
+        "url": "https://economictimes.indiatimes.com/news/economy/indicators/us-iran-conflict-impact-on-corporate-earnings-and-supply-chain-disruptions-in-q4fy26/articleshow/129791009.cms"
+      }
+    ],
+    "contagion_note": "Signal isolated to Unknown.",
+    "historical_match": 0,
+    "portfolio_relevance": "none",
+    "action_recommendation": {
+      "type": "INCREASE_MONITORING",
+      "reasoning": "Auto-generated fallback.",
+      "confidence": 0
+    },
+    "audio_path": "",
+    "disclaimer": "This is for research only. Not investment advice."
+  },
+  {
+    "id": "3c29a7ce",
+    "headline": "Signal requires manual review",
+    "summary": "Cross-source convergence detected.",
+    "what_to_watch": "Check source articles directly.",
+    "signal_type": "TRIPLE_THREAT",
+    "severity": "medium",
+    "freshness": "RECENT",
+    "confidence": 15,
+    "sources": [
+      {
+        "title": "US Stocks Today | US stock futures gain on Mideast ceasefire hopes",
+        "source": "ET Markets",
+        "url": "https://economictimes.indiatimes.com/markets/us-stocks/news/us-stocks-today-us-stock-futures-gain-on-mideast-ceasefire-hopes/articleshow/129800325.cms"
+      },
+      {
+        "title": "D-St investors gain Rs 10 lakh cr as Sensex soars 1,200 pts; Nifty closes above 23,300. 3 key factors behind today\u2019s rally",
+        "source": "ET Stocks",
+        "url": "https://economictimes.indiatimes.com/markets/stocks/news/d-st-investors-gain-rs-5-lakh-cr-as-sensex-soars-800-pts-nifty-tops-23150-us-ceasefire-push-among-4-factors-behind-todays-surge/articleshow/129790548.cms"
+      }
+    ],
+    "contagion_note": "Signal isolated to Unknown.",
+    "historical_match": 0,
+    "portfolio_relevance": "none",
+    "action_recommendation": {
+      "type": "INCREASE_MONITORING",
+      "reasoning": "Auto-generated fallback.",
+      "confidence": 0
+    },
+    "audio_path": "",
+    "disclaimer": "This is for research only. Not investment advice."
+  }
+]

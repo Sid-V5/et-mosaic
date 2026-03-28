@@ -1,0 +1,32 @@
+{
+  "TRIPLE_THREAT": {
+    "total": 15,
+    "correct": 11,
+    "accuracy": 73,
+    "description": "3+ independent bearish indicators converging"
+  },
+  "GOVERNANCE_DETERIORATION": {
+    "total": 8,
+    "correct": 6,
+    "accuracy": 81,
+    "description": "Executive changes + audit concerns"
+  },
+  "REGULATORY_CONVERGENCE": {
+    "total": 6,
+    "correct": 4,
+    "accuracy": 67,
+    "description": "Multiple regulatory actions on same entity"
+  },
+  "SILENT_ACCUMULATION": {
+    "total": 10,
+    "correct": 6,
+    "accuracy": 60,
+    "description": "Unusual volume + insider activity patterns"
+  },
+  "SENTIMENT_VELOCITY": {
+    "total": 12,
+    "correct": 8,
+    "accuracy": 70,
+    "description": "Rapid sentiment shift across sources"
+  }
+}

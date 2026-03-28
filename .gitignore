@@ -1,0 +1,9 @@
+node_modules/
+.env
+__pycache__/
+venv/
+*.pyc
+.ipynb_checkpoints/
+.DS_Store
+data/audio/*
+!data/audio/.gitkeep
