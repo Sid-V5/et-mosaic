@@ -1,328 +1,589 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 
 const API_BASE = 'http://localhost:8000';
 
-export default function SignalDetail({ selectedSignal }) {
-  const [actionLoading, setActionLoading] = useState('');
-  const [actionDone, setActionDone] = useState({});
+export default function SignalDetail({ selectedSignal, username = '' }) {
+  const [takenActions, setTakenActions] = useState([]);
+
+  useEffect(() => {
+    if (!selectedSignal?.id || !username) { setTakenActions([]); return; }
+    try {
+      const key = `et_actions_${username}`;
+      const existing = JSON.parse(localStorage.getItem(key) || '[]');
+      setTakenActions(existing.filter(a => a.signal_id === selectedSignal.id).map(a => a.action_type));
+    } catch { setTakenActions([]); }
+  }, [selectedSignal?.id, username]);
+
+  const handleAction = (actionType) => {
+    if (!selectedSignal?.id) return;
+    const key = `et_actions_${username}`;
+    try {
+      const existing = JSON.parse(localStorage.getItem(key) || '[]');
+      if (!existing.some(a => a.signal_id === selectedSignal.id && a.action_type === actionType)) {
+        existing.push({ signal_id: selectedSignal.id, action_type: actionType, timestamp: Date.now() });
+        localStorage.setItem(key, JSON.stringify(existing));
+      }
+    } catch { /* ignore */ }
+    setTakenActions(prev => [...new Set([...prev, actionType])]);
+    axios.post(`${API_BASE}/api/action`, { signal_id: selectedSignal.id, action_type: actionType }).catch(() => {});
+  };
 
   if (!selectedSignal) {
     return (
       <div style={{
-        height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: '32px', textAlign: 'center', color: 'var(--text-muted)',
-        background: 'var(--glass-light)', borderLeft: '1px solid var(--border-subtle)'
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', height: '100%', padding: '32px',
       }}>
-        <div style={{ animation: 'slideUpFade 0.6s ease-out forwards' }}>
-          <div style={{
-            fontSize: '48px', marginBottom: '16px', opacity: 0.8,
-            animation: 'pulseSubtle 3s infinite ease-in-out'
-          }}>🔍</div>
-          <div style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '8px' }}>Evidence Layers</div>
-          <div style={{ fontSize: '13px', maxWidth: '280px', lineHeight: '1.6' }}>
-            Select a signal from the feed to view its underlying evidence layers, technical confirmation, and historical accuracy.
-          </div>
+        <div style={{
+          fontFamily: "'IBM Plex Mono', monospace", fontSize: '10px',
+          color: 'rgba(240,238,232,0.12)', letterSpacing: '0.12em',
+          textTransform: 'uppercase', marginBottom: '10px',
+        }}>EVIDENCE CHAIN</div>
+        <div style={{
+          fontFamily: "'DM Sans', sans-serif", fontSize: '13px',
+          color: 'rgba(240,238,232,0.3)', textAlign: 'center', maxWidth: '280px',
+          lineHeight: '1.6',
+        }}>
+          Select a signal to view its underlying evidence layers, cross-source verification, and historical accuracy.
         </div>
       </div>
     );
   }
 
-  const handleAction = async (actionType) => {
-    setActionLoading(actionType);
-    try {
-      // Save to localStorage for persistence
-      const existing = JSON.parse(localStorage.getItem('et_actions') || '[]');
-      existing.push({
-        signal_id: selectedSignal.id,
-        action_type: actionType,
-        headline: selectedSignal.headline,
-        timestamp: new Date().toISOString(),
-      });
-      localStorage.setItem('et_actions', JSON.stringify(existing));
-
-      // Also try backend (may not be implemented)
-      await axios.post(`${API_BASE}/api/action`, {
-        signal_id: selectedSignal.id,
-        action_type: actionType,
-      }).catch(() => {}); // Ignore if backend doesn't have this endpoint
-
-      setActionDone(prev => ({ ...prev, [actionType]: true }));
-      setTimeout(() => setActionDone(prev => ({ ...prev, [actionType]: false })), 3000);
-    } catch (e) {
-      console.error('Action error:', e);
-    }
-    setActionLoading('');
-  };
-
   const s = selectedSignal;
-  const tech = s.technical || {};
-  const hasTickers = s.nse_tickers && s.nse_tickers.length > 0 && s.nse_tickers[0] !== '';
-  const hasTechData = tech.rsi || tech.macd_class || tech.bb_signal;
-  const isMacroSignal = !hasTickers;
-  const actionRec = s.action_recommendation || {};
+  const technical = s.technical || {};
+  const priceData = s.price_data || {};
+  const bulkDeals = s.bulk_deals || [];
+  const similarity = s.similarity || 0;
+  const sentimentVelocity = s.sentiment_velocity || 0;
+  const marketConfirmation = s.market_data_confirmation || 0;
+
+  const sevColor = s.severity === 'high' ? '#E24B4A' : s.severity === 'medium' ? '#F0A500' : '#0EA5A0';
+
+  const sectionLabel = (num, text) => (
+    <div style={{
+      fontFamily: "'IBM Plex Mono', monospace", fontSize: '13px',
+      color: '#F0A500', letterSpacing: '0.1em',
+      textTransform: 'uppercase', marginTop: num > 1 ? '16px' : '0',
+      marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px',
+    }}>
+      <span style={{ fontWeight: '600' }}>0{num}</span>
+      <span style={{ color: 'rgba(240,238,232,0.55)' }}>{text}</span>
+    </div>
+  );
+
+  const dataRow = (label, value, color = 'rgba(240,238,232,0.8)') => (
+    <div style={{
+      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      padding: '4px 0',
+    }}>
+      <span style={{
+        fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px',
+        color: 'rgba(240,238,232,0.5)', textTransform: 'uppercase', letterSpacing: '0.05em',
+      }}>{label}</span>
+      <span style={{
+        fontFamily: "'IBM Plex Mono', monospace", fontSize: '13px',
+        color, fontWeight: '500',
+      }}>{value}</span>
+    </div>
+  );
 
   return (
-    <div style={{ padding: '16px', overflowY: 'auto', height: '100%' }}>
+    <div style={{
+      display: 'flex', flexDirection: 'column', height: '100%',
+      overflowY: 'auto', padding: '14px',
+    }}>
       {/* Header */}
-      <h3 style={{ color: '#E2E8F0', fontSize: '16px', fontWeight: '700', marginBottom: '4px' }}>
-        {s.headline}
-      </h3>
-
-      {/* Signal meta */}
-      <div style={{ display: 'flex', gap: '6px', marginBottom: '12px', flexWrap: 'wrap' }}>
-        {s.sector && s.sector !== 'Other' && (
+      <div style={{ marginBottom: '10px' }}>
+        <div style={{ display: 'flex', gap: '5px', marginBottom: '5px', alignItems: 'center' }}>
           <span style={{
-            fontSize: '9px', fontWeight: '600', padding: '2px 8px', borderRadius: '4px',
-            background: 'rgba(79, 134, 198, 0.15)', color: '#4F86C6',
-          }}>
-            {s.sector}
-          </span>
-        )}
-        {(s.event_types || []).slice(0, 3).map((evt, i) => (
-          <span key={i} style={{
-            fontSize: '9px', fontWeight: '600', padding: '2px 8px', borderRadius: '4px',
-            background: 'rgba(148, 163, 184, 0.1)', color: '#94A3B8',
-          }}>
-            {evt}
-          </span>
-        ))}
+            fontSize: '9px', fontWeight: '500', textTransform: 'uppercase',
+            padding: '2px 6px',
+            background: `${sevColor}15`, color: sevColor,
+            fontFamily: "'IBM Plex Mono', monospace",
+          }}>{s.severity}</span>
+          <span style={{
+            fontSize: '9px', fontWeight: '400', textTransform: 'uppercase',
+            padding: '2px 6px', color: 'rgba(240,238,232,0.2)',
+            fontFamily: "'IBM Plex Mono', monospace",
+          }}>{s.signal_type?.replace(/_/g, ' ')}</span>
+        </div>
+        <div style={{
+          fontSize: '17px', fontWeight: '600', color: '#F0EEE8',
+          fontFamily: "'DM Sans', sans-serif", lineHeight: '1.35', marginBottom: '5px',
+        }}>{s.headline}</div>
+        <div style={{
+          fontSize: '14px', color: 'rgba(240,238,232,0.55)', lineHeight: '1.5',
+          fontFamily: "'DM Sans', sans-serif", fontWeight: '300',
+        }}>{s.summary}</div>
       </div>
 
-      {/* What to watch */}
-      {s.what_to_watch && (
-        <div style={{
-          marginBottom: '14px', padding: '8px 12px', borderRadius: '6px',
-          background: 'rgba(239, 159, 39, 0.08)', border: '1px solid rgba(239, 159, 39, 0.2)',
-        }}>
-          <div style={{ fontSize: '9px', color: '#EF9F27', fontWeight: '700', textTransform: 'uppercase', marginBottom: '2px' }}>👁 What to Watch</div>
-          <div style={{ fontSize: '12px', color: '#E2E8F0' }}>{s.what_to_watch}</div>
+      {/* Confidence bar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+        <div style={{ flex: 1, height: '3px', background: 'rgba(255,255,255,0.05)' }}>
+          <div style={{
+            height: '100%', width: `${s.confidence}%`,
+            background: s.confidence > 70 ? '#E24B4A' : s.confidence > 50 ? '#F0A500' : '#0EA5A0',
+          }} />
         </div>
-      )}
+        <span style={{
+          fontFamily: "'IBM Plex Mono', monospace", fontSize: '13px', color: '#F0A500',
+          fontWeight: '600',
+        }}>{s.confidence}%</span>
+      </div>
 
-      {/* 1. ET Articles — with links */}
-      <Section title="ET Articles" icon="📰">
-        {(s.sources || []).map((src, i) => (
-          <div key={i} style={{
-            padding: '8px 12px', marginBottom: '6px', borderRadius: '6px',
-            background: 'rgba(79, 134, 198, 0.1)', border: '1px solid rgba(79, 134, 198, 0.2)',
+      {/* 01 Cross-source */}
+      {sectionLabel(1, 'CROSS-SOURCE ANALYSIS')}
+      <div style={{
+        padding: '8px 10px', background: 'rgba(255,255,255,0.02)',
+        border: '1px solid rgba(255,255,255,0.05)', marginBottom: '4px',
+      }}>
+        {dataRow('Embedding Similarity', similarity > 0 ? `${(similarity * 100).toFixed(0)}%` : 'N/A',
+          similarity > 0.6 ? '#E24B4A' : similarity > 0.4 ? '#F0A500' : 'rgba(240,238,232,0.7)')}
+        {dataRow('Sentiment Delta', sentimentVelocity > 0 ? sentimentVelocity.toFixed(3) : 'N/A',
+          sentimentVelocity > 0.3 ? '#E24B4A' : 'rgba(240,238,232,0.7)')}
+        {dataRow('Market Confirmation', marketConfirmation > 0 ? `${(marketConfirmation * 100).toFixed(0)}%` : 'Pending',
+          marketConfirmation >= 0.5 ? '#3CB371' : 'rgba(240,238,232,0.35)')}
+        {dataRow('Source Articles', `${(s.sources || []).length}`, 'rgba(240,238,232,0.7)')}
+      </div>
+      {(s.sources || []).map((src, i) => (
+        <div key={i} style={{
+          fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px',
+          color: 'rgba(240,238,232,0.5)', padding: '4px 10px',
+          borderLeft: '2px solid rgba(79,134,198,0.3)', marginBottom: '3px',
+        }}>
+          <a href={src.url} target="_blank" rel="noreferrer" style={{
+            color: 'rgba(79,134,198,0.9)', textDecoration: 'none',
           }}>
-            <div style={{ color: '#E2E8F0', fontSize: '12px', fontWeight: '600' }}>{src.title || 'Article'}</div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '3px' }}>
-              <span style={{ color: '#64748B', fontSize: '10px' }}>{src.source}</span>
-              {src.url ? (
-                <a href={src.url} target="_blank" rel="noreferrer"
-                  style={{ color: '#4F86C6', fontSize: '10px', textDecoration: 'none', fontWeight: '600' }}>
-                  Read Article →
-                </a>
-              ) : (
-                <span style={{ color: '#475569', fontSize: '9px', fontStyle: 'italic' }}>
-                  via RSS feed
-                </span>
+            {src.title?.slice(0, 60)} <span style={{ color: 'rgba(240,238,232,0.25)' }}>/ {src.source}</span>
+          </a>
+        </div>
+      ))}
+
+      {/* 02 Market Data */}
+      {sectionLabel(2, 'MARKET DATA')}
+      <div style={{
+        padding: '8px 10px', background: 'rgba(255,255,255,0.02)',
+        border: '1px solid rgba(255,255,255,0.05)',
+      }}>
+        {bulkDeals.length > 0 ? (
+          bulkDeals.slice(0, 3).map((deal, i) => (
+            <div key={i} style={{
+              padding: '5px 0',
+              borderBottom: i < Math.min(bulkDeals.length, 3) - 1 ? '1px solid rgba(255,255,255,0.03)' : 'none',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{
+                  fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px',
+                  color: 'rgba(240,238,232,0.7)',
+                }}>{deal.client || deal.stock}</span>
+                {deal.distress_assessment && (
+                  <span style={{
+                    fontFamily: "'IBM Plex Mono', monospace", fontSize: '9px',
+                    fontWeight: '600', padding: '1px 6px', letterSpacing: '0.04em',
+                    background: deal.distress_assessment === 'LIKELY_DISTRESS' ? 'rgba(226,75,74,0.15)' :
+                      deal.distress_assessment === 'ELEVATED_CONCERN' ? 'rgba(240,165,0,0.12)' : 'rgba(60,179,113,0.1)',
+                    color: deal.distress_assessment === 'LIKELY_DISTRESS' ? '#E24B4A' :
+                      deal.distress_assessment === 'ELEVATED_CONCERN' ? '#F0A500' : '#3CB371',
+                  }}>{deal.distress_assessment?.replace(/_/g, ' ')}</span>
+                )}
+              </div>
+              <div style={{
+                fontFamily: "'IBM Plex Mono', monospace", fontSize: '10px',
+                color: 'rgba(240,238,232,0.45)', marginTop: '2px',
+              }}>
+                {deal.qty?.toLocaleString()} shares @ ₹{deal.price?.toLocaleString()} • {deal.side}
+                {deal.discount_pct > 0 && (
+                  <span style={{ color: '#E24B4A', fontWeight: '600' }}> • {deal.discount_pct}% discount</span>
+                )}
+                {deal.is_promoter && (
+                  <span style={{ color: '#F0A500' }}> • PROMOTER</span>
+                )}
+              </div>
+              {deal.recommended_action && (
+                <div style={{
+                  fontFamily: "'DM Sans', sans-serif", fontSize: '11px',
+                  color: 'rgba(240,238,232,0.4)', marginTop: '3px', fontStyle: 'italic',
+                }}>→ {deal.recommended_action}</div>
               )}
             </div>
-          </div>
-        ))}
-        {(!s.sources || s.sources.length === 0) && (
-          <div style={{ color: '#64748B', fontSize: '12px' }}>No source articles available.</div>
-        )}
-      </Section>
-
-      {/* 2. Connection Evidence — the actual scoring data */}
-      <Section title="Connection Evidence" icon="🔗">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
-          <MiniStat label="Similarity" value={s.similarity ? `${Math.round(s.similarity * 100)}%` : (s.market_data_confirmation ? `${Math.round(s.market_data_confirmation * 100)}%` : '—')} />
-          <MiniStat label="Sentiment Δ" value={s.sentiment_velocity ? s.sentiment_velocity.toFixed(2) : '—'} />
-          <MiniStat label="Accuracy" value={s.historical_match ? `${Math.round(s.historical_match * 100)}%` : '—'} />
-        </div>
-      </Section>
-
-      {/* 3. Market Data */}
-      <Section title="Market Data" icon="📊">
-        {isMacroSignal ? (
-          <div style={{
-            padding: '8px 12px', borderRadius: '6px',
-            background: 'rgba(148, 163, 184, 0.05)', border: '1px solid rgba(148, 163, 184, 0.1)',
-          }}>
-            <div style={{ fontSize: '11px', color: '#94A3B8', lineHeight: '1.5' }}>
-              📌 <strong>Macro/Thematic Signal</strong> — Covers broad macro themes. Market confirmation from cross-article correlation.
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginTop: '6px' }}>
-              <DataPoint label="Cross-Source" value={`${Math.round((s.similarity || s.market_data_confirmation || 0) * 100)}%`} />
-              <DataPoint label="Confidence" value={`${s.confidence}%`} highlight={s.confidence >= 70} />
-            </div>
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-            <DataPoint label="Bulk Deals" value={s.bulk_deals?.length > 0 ? `${s.bulk_deals.length} found` : 'None'} />
-            <DataPoint label="Volume Spike" value={s.price_data?.volume_spike ? '⚠️ Yes' : 'Normal'} />
-            <DataPoint label="Price (7d)" value={s.price_data?.price_change_7d_pct ? `${s.price_data.price_change_7d_pct}%` : '—'}
-              highlight={s.price_data?.price_change_7d_pct < -5} />
-            <DataPoint label="Current Price" value={s.price_data?.current_price ? `₹${s.price_data.current_price}` : '—'} />
-          </div>
-        )}
-      </Section>
-
-      {/* 4. Technical Indicators */}
-      <Section title="Technical Indicators" icon="📈">
-        {isMacroSignal ? (
-          <div style={{
-            padding: '8px 12px', borderRadius: '6px',
-            background: 'rgba(148, 163, 184, 0.05)', border: '1px solid rgba(148, 163, 184, 0.1)',
-            fontSize: '11px', color: '#94A3B8',
-          }}>
-            📌 TA available for NSE equities only. Macro signals use cross-article sentiment analysis.
-          </div>
-        ) : hasTechData ? (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-            <DataPoint label="RSI" value={tech.rsi ? `${tech.rsi} (${tech.rsi_signal})` : '—'}
-              highlight={tech.rsi_signal === 'OVERBOUGHT'} />
-            <DataPoint label="MACD" value={tech.macd_class || '—'}
-              highlight={tech.macd_class === 'BEARISH_CROSS'} />
-            <DataPoint label="Bollinger" value={tech.bb_signal || '—'} />
-            <DataPoint label="200-DMA" value={tech.dma_signal || '—'}
-              highlight={tech.dma_signal === 'BELOW_200DMA'} />
-          </div>
+          ))
         ) : (
           <div style={{
-            padding: '8px 12px', borderRadius: '6px',
-            background: 'rgba(148, 163, 184, 0.05)', border: '1px solid rgba(148, 163, 184, 0.1)',
-            fontSize: '11px', color: '#94A3B8',
-          }}>
-            Awaiting market data. TA populates during NSE trading hours.
-          </div>
+            fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px',
+            color: 'rgba(240,238,232,0.35)',
+          }}>{priceData.current_price ? `₹${priceData.current_price?.toFixed(2)}` : 'NSE data pending.'}</div>
         )}
-      </Section>
+        {priceData.volume_spike && dataRow('Volume Spike', '▲ Detected', '#E24B4A')}
+        {priceData.price_change_7d_pct != null && dataRow('7D Change', `${priceData.price_change_7d_pct?.toFixed(1)}%`,
+          priceData.price_change_7d_pct < -5 ? '#E24B4A' : 'rgba(240,238,232,0.7)')}
+      </div>
 
-      {/* 5. Contagion */}
-      <Section title="Contagion Analysis" icon="🌐">
-        <DataPoint label="Type" value={s.contagion_type || 'isolated'}
-          highlight={s.contagion_type === 'systemic' || s.contagion_type === 'spreading'} />
+      {/* 03 Technical */}
+      {sectionLabel(3, 'TECHNICAL')}
+      <div style={{
+        padding: '8px 10px', background: 'rgba(255,255,255,0.02)',
+        border: '1px solid rgba(255,255,255,0.05)',
+      }}>
+        {technical.rsi_signal || technical.rsi ? (
+          <>
+            {/* 52-Week Breakout — Scenario 2 highlight */}
+            {technical.breakout_52w && (
+              <div style={{
+                padding: '6px 8px', marginBottom: '6px',
+                background: technical.volume_confirmed ? 'rgba(60,179,113,0.08)' : 'rgba(240,165,0,0.06)',
+                border: `1px solid ${technical.volume_confirmed ? 'rgba(60,179,113,0.2)' : 'rgba(240,165,0,0.15)'}`,
+              }}>
+                <div style={{
+                  fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px',
+                  fontWeight: '700', color: technical.volume_confirmed ? '#3CB371' : '#F0A500',
+                  marginBottom: '3px',
+                }}>
+                  🚀 52-WEEK HIGH BREAKOUT {technical.volume_confirmed ? '(VOL CONFIRMED)' : '(UNCONFIRMED)'}
+                </div>
+                {dataRow('52W High', `₹${technical.high_52w?.toLocaleString()}`, '#3CB371')}
+                {dataRow('Volume Ratio', `${technical.volume_ratio}x avg`, technical.volume_ratio > 1.5 ? '#3CB371' : '#F0A500')}
+                {technical.pattern_success_rate?.sample_size > 0 && (
+                  <>
+                    {dataRow('T+5 Win Rate', `${technical.pattern_success_rate.t5_win_rate}%`,
+                      technical.pattern_success_rate.t5_win_rate > 60 ? '#3CB371' : '#F0A500')}
+                    {dataRow('T+20 Win Rate', `${technical.pattern_success_rate.t20_win_rate}%`,
+                      technical.pattern_success_rate.t20_win_rate > 55 ? '#3CB371' : '#F0A500')}
+                    <div style={{
+                      fontFamily: "'IBM Plex Mono', monospace", fontSize: '9px',
+                      color: 'rgba(240,238,232,0.3)', marginTop: '2px',
+                    }}>{technical.pattern_success_rate.note}</div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {dataRow('RSI (14)', `${Number(technical.rsi || technical.RSI_14).toFixed(1)} ${technical.rsi_signal || ''}`,
+              technical.rsi_signal === 'OVERBOUGHT' ? '#E24B4A' : technical.rsi_signal === 'OVERSOLD' ? '#3CB371' : 'rgba(240,238,232,0.7)')}
+            {technical.macd_class && dataRow('MACD', technical.macd_class?.replace(/_/g, ' '),
+              technical.macd_class === 'BEARISH_CROSS' ? '#E24B4A' : '#3CB371')}
+            {technical.dma_signal && dataRow('200-DMA', technical.dma_signal?.replace(/_/g, ' '),
+              technical.dma_signal === 'BELOW_200DMA' ? '#E24B4A' : '#3CB371')}
+            {technical.golden_cross && dataRow('Cross', '🟡 Golden Cross (50 > 200 DMA)', '#3CB371')}
+            {technical.death_cross && dataRow('Cross', '💀 Death Cross (50 < 200 DMA)', '#E24B4A')}
+            {technical.confirms_risk != null && dataRow('Risk Confirmed', technical.confirms_risk ? 'YES' : 'NO',
+              technical.confirms_risk ? '#E24B4A' : '#3CB371')}
+
+            {/* FII/DII Activity — Scenario 2 */}
+            {technical.fii_dii && (
+              <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                <div style={{
+                  fontFamily: "'IBM Plex Mono', monospace", fontSize: '9px',
+                  color: 'rgba(240,238,232,0.3)', letterSpacing: '0.06em', marginBottom: '3px',
+                }}>INSTITUTIONAL FLOW</div>
+                {technical.fii_dii.fii_sentiment && dataRow('FII/FPI',
+                  `${technical.fii_dii.fii_sentiment} (₹${Math.abs(technical.fii_dii.fii_net_cr || 0).toFixed(0)} Cr)`,
+                  technical.fii_dii.fii_sentiment === 'BUYING' ? '#3CB371' : '#E24B4A')}
+                {technical.fii_dii.dii_sentiment && dataRow('DII',
+                  `${technical.fii_dii.dii_sentiment} (₹${Math.abs(technical.fii_dii.dii_net_cr || 0).toFixed(0)} Cr)`,
+                  technical.fii_dii.dii_sentiment === 'BUYING' ? '#3CB371' : '#E24B4A')}
+              </div>
+            )}
+          </>
+        ) : (
+          <div style={{
+            fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px',
+            color: 'rgba(240,238,232,0.35)',
+          }}>TA available for NSE equities only. Macro signals use cross-article sentiment.</div>
+        )}
+      </div>
+
+      {/* 04 Contagion */}
+      {sectionLabel(4, 'CONTAGION')}
+      <div style={{
+        padding: '8px 10px', background: 'rgba(255,255,255,0.02)',
+        border: '1px solid rgba(255,255,255,0.05)',
+      }}>
+        {dataRow('Type', s.contagion_type || 'isolated',
+          s.contagion_type === 'systemic' ? '#E24B4A' : s.contagion_type === 'spreading' ? '#F0A500' : 'rgba(240,238,232,0.6)')}
+        {s.contagion_note && (
+          <div style={{
+            fontFamily: "'DM Sans', sans-serif", fontSize: '13px',
+            color: 'rgba(240,238,232,0.5)', marginTop: '4px', lineHeight: '1.5',
+          }}>{s.contagion_note}</div>
+        )}
         {s.affected_peers?.length > 0 && (
-          <div style={{ marginTop: '6px' }}>
-            <span style={{ fontSize: '10px', color: '#64748B' }}>Affected Peers: </span>
-            {s.affected_peers.map((p, i) => (
+          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '4px' }}>
+            {s.affected_peers.map((peer, i) => (
               <span key={i} style={{
-                fontSize: '10px', color: '#E24B4A', marginRight: '6px', fontWeight: '600',
-              }}>{p}</span>
+                fontFamily: "'IBM Plex Mono', monospace", fontSize: '9px',
+                color: 'rgba(240,238,232,0.4)', padding: '2px 6px',
+                background: 'rgba(255,255,255,0.03)',
+              }}>{peer}</span>
             ))}
           </div>
         )}
-        <div style={{ marginTop: '4px', color: '#94A3B8', fontSize: '11px', fontStyle: 'italic' }}>
-          {s.contagion_note && s.contagion_note !== 'Signal isolated to Unknown.'
-            ? s.contagion_note
-            : (isMacroSignal ? 'Macro signal — tracks cross-sector sentiment spread.' : 'No peer contagion detected.')
-          }
-        </div>
-      </Section>
+      </div>
 
-      {/* AI Recommended Action */}
-      {actionRec.type && (
+      {/* 05 Analysis Chain — 30% Autonomy Depth Score */}
+      {s.analysis_chain?.length > 0 && (
+        <>
+          {sectionLabel(5, 'ANALYSIS CHAIN')}
+          <div style={{
+            padding: '8px 10px', background: 'rgba(255,255,255,0.02)',
+            border: '1px solid rgba(255,255,255,0.05)',
+          }}>
+            {s.analysis_chain.map((step, i) => (
+              <div key={i} style={{
+                display: 'flex', gap: '8px', padding: '5px 0',
+                borderBottom: i < s.analysis_chain.length - 1 ? '1px solid rgba(255,255,255,0.03)' : 'none',
+              }}>
+                <div style={{
+                  width: '22px', height: '22px', borderRadius: '50%',
+                  background: 'rgba(14,165,160,0.15)', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                  fontFamily: "'IBM Plex Mono', monospace", fontSize: '10px',
+                  color: '#0EA5A0', fontWeight: '700',
+                }}>{step.step}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontFamily: "'IBM Plex Mono', monospace", fontSize: '10px',
+                    color: '#0EA5A0', letterSpacing: '0.05em', marginBottom: '1px',
+                  }}>{step.agent}</div>
+                  <div style={{
+                    fontFamily: "'DM Sans', sans-serif", fontSize: '12px',
+                    color: 'rgba(240,238,232,0.7)', lineHeight: '1.4',
+                  }}>{step.action}</div>
+                  {step.detail && (
+                    <div style={{
+                      fontFamily: "'IBM Plex Mono', monospace", fontSize: '10px',
+                      color: 'rgba(240,238,232,0.35)', marginTop: '1px',
+                    }}>{step.detail}</div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* 06 Conflicting Signals — Scenario 2 */}
+      {s.conflicting_signals?.verdict && s.conflicting_signals.verdict !== 'NEUTRAL' && (
+        <>
+          {sectionLabel(6, 'SIGNAL BALANCE')}
+          <div style={{
+            padding: '8px 10px', background: 'rgba(255,255,255,0.02)',
+            border: '1px solid rgba(255,255,255,0.05)',
+          }}>
+            {/* Verdict badge */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+              <span style={{
+                fontFamily: "'IBM Plex Mono', monospace", fontSize: '10px',
+                fontWeight: '600', letterSpacing: '0.08em',
+                padding: '2px 8px',
+                background: s.conflicting_signals.verdict === 'CONFLICTING' ? 'rgba(240,165,0,0.12)' :
+                  s.conflicting_signals.verdict === 'BULLISH' ? 'rgba(60,179,113,0.12)' : 'rgba(226,75,74,0.12)',
+                color: s.conflicting_signals.verdict === 'CONFLICTING' ? '#F0A500' :
+                  s.conflicting_signals.verdict === 'BULLISH' ? '#3CB371' : '#E24B4A',
+              }}>{s.conflicting_signals.verdict}</span>
+              {s.conflicting_signals.balance_note && (
+                <span style={{
+                  fontFamily: "'IBM Plex Mono', monospace", fontSize: '10px',
+                  color: 'rgba(240,238,232,0.35)',
+                }}>{s.conflicting_signals.balance_note}</span>
+              )}
+            </div>
+
+            {/* Bullish */}
+            {s.conflicting_signals.bullish?.length > 0 && (
+              <div style={{ marginBottom: '6px' }}>
+                <div style={{
+                  fontFamily: "'IBM Plex Mono', monospace", fontSize: '9px',
+                  color: '#3CB371', letterSpacing: '0.06em', marginBottom: '3px',
+                }}>▲ BULLISH</div>
+                {s.conflicting_signals.bullish.map((sig, i) => (
+                  <div key={i} style={{
+                    fontFamily: "'DM Sans', sans-serif", fontSize: '12px',
+                    color: 'rgba(240,238,232,0.55)', padding: '2px 0 2px 10px',
+                    borderLeft: '2px solid rgba(60,179,113,0.25)',
+                  }}>{sig}</div>
+                ))}
+              </div>
+            )}
+
+            {/* Bearish */}
+            {s.conflicting_signals.bearish?.length > 0 && (
+              <div>
+                <div style={{
+                  fontFamily: "'IBM Plex Mono', monospace", fontSize: '9px',
+                  color: '#E24B4A', letterSpacing: '0.06em', marginBottom: '3px',
+                }}>▼ BEARISH</div>
+                {s.conflicting_signals.bearish.map((sig, i) => (
+                  <div key={i} style={{
+                    fontFamily: "'DM Sans', sans-serif", fontSize: '12px',
+                    color: 'rgba(240,238,232,0.55)', padding: '2px 0 2px 10px',
+                    borderLeft: '2px solid rgba(226,75,74,0.25)',
+                  }}>{sig}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* 07 Portfolio Impact — Scenario 3 */}
+      {s.portfolio_impact?.materiality && s.portfolio_impact.materiality !== 'NONE' && (
+        <>
+          {sectionLabel(7, 'PORTFOLIO IMPACT')}
+          <div style={{
+            padding: '10px', background: s.portfolio_impact.materiality === 'HIGH'
+              ? 'rgba(226,75,74,0.06)' : 'rgba(240,165,0,0.04)',
+            border: `1px solid ${s.portfolio_impact.materiality === 'HIGH'
+              ? 'rgba(226,75,74,0.2)' : 'rgba(240,165,0,0.15)'}`,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+              <span style={{
+                fontFamily: "'IBM Plex Mono', monospace", fontSize: '10px',
+                color: s.portfolio_impact.materiality === 'HIGH' ? '#E24B4A' : '#F0A500',
+                fontWeight: '600', letterSpacing: '0.06em',
+              }}>{s.portfolio_impact.materiality} MATERIALITY</span>
+              <span style={{
+                fontFamily: "'IBM Plex Mono', monospace", fontSize: '14px',
+                color: s.portfolio_impact.total_impact_inr < 0 ? '#E24B4A' : '#3CB371',
+                fontWeight: '700',
+              }}>
+                {s.portfolio_impact.total_impact_inr < 0 ? '−' : '+'}₹{Math.abs(s.portfolio_impact.total_impact_inr || 0).toLocaleString('en-IN')}
+              </span>
+            </div>
+            {dataRow('Portfolio Impact', `${s.portfolio_impact.total_impact_pct || 0}%`,
+              Math.abs(s.portfolio_impact.total_impact_pct) >= 2 ? '#E24B4A' : '#F0A500')}
+            {s.portfolio_impact.affected_holdings?.map((h, i) => (
+              <div key={i} style={{
+                display: 'flex', justifyContent: 'space-between', padding: '3px 0',
+                borderTop: '1px solid rgba(255,255,255,0.03)',
+              }}>
+                <span style={{
+                  fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px',
+                  color: 'rgba(240,238,232,0.6)',
+                }}>{h.ticker}</span>
+                <span style={{
+                  fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px',
+                  color: h.estimated_impact_inr < 0 ? '#E24B4A' : '#3CB371',
+                }}>
+                  {h.estimated_impact_inr < 0 ? '−' : '+'}₹{Math.abs(h.estimated_impact_inr).toLocaleString('en-IN')} ({h.estimated_impact_pct}%)
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* 08 Filing Citations — Scenario 1 */}
+      {s.filing_citation?.length > 0 && (
+        <>
+          {sectionLabel(8, 'SOURCE CITATIONS')}
+          <div style={{
+            padding: '8px 10px', background: 'rgba(255,255,255,0.02)',
+            border: '1px solid rgba(255,255,255,0.05)',
+          }}>
+            {s.filing_citation.map((citation, i) => (
+              <div key={i} style={{
+                fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px',
+                color: 'rgba(240,238,232,0.55)', padding: '4px 0 4px 8px',
+                borderLeft: '2px solid rgba(79,134,198,0.3)', marginBottom: '4px',
+                lineHeight: '1.4',
+              }}>
+                <span style={{ color: 'rgba(79,134,198,0.8)' }}>📄 </span>
+                {citation}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* 09 Recommendation + Actions */}
+      {sectionLabel(9, 'RECOMMENDATION')}
+      {s.action_recommendation?.reasoning && (
         <div style={{
-          marginBottom: '12px', padding: '10px', borderRadius: '6px',
-          background: actionRec.type === 'REDUCE_EXPOSURE'
-            ? 'rgba(226, 75, 74, 0.08)' : actionRec.type === 'ADD_WATCHLIST'
-            ? 'rgba(59, 179, 113, 0.08)' : 'rgba(239, 159, 39, 0.08)',
-          border: `1px solid ${actionRec.type === 'REDUCE_EXPOSURE'
-            ? 'rgba(226, 75, 74, 0.2)' : actionRec.type === 'ADD_WATCHLIST'
-            ? 'rgba(59, 179, 113, 0.2)' : 'rgba(239, 159, 39, 0.2)'}`,
+          fontFamily: "'DM Sans', sans-serif", fontSize: '13px',
+          color: 'rgba(240,238,232,0.55)', marginBottom: '8px', lineHeight: '1.5',
+        }}>{s.action_recommendation.reasoning}</div>
+      )}
+      <div style={{ display: 'flex', gap: '4px', marginBottom: '10px' }}>
+        {['ADD_WATCHLIST', 'REDUCE_EXPOSURE', 'INCREASE_MONITORING'].map(action => {
+          const isTaken = takenActions.includes(action);
+          const colors = { ADD_WATCHLIST: '#0EA5A0', REDUCE_EXPOSURE: '#E24B4A', INCREASE_MONITORING: '#F0A500' };
+          const labels = { ADD_WATCHLIST: 'WATCHLIST', REDUCE_EXPOSURE: 'REDUCE', INCREASE_MONITORING: 'MONITOR' };
+          return (
+            <button
+              key={action}
+              onClick={() => handleAction(action)}
+              style={{
+                flex: 1, padding: '7px', border: 'none', cursor: 'pointer',
+                fontFamily: "'IBM Plex Mono', monospace", fontSize: '9px',
+                fontWeight: '500', letterSpacing: '0.06em',
+                background: isTaken ? `${colors[action]}20` : 'rgba(255,255,255,0.04)',
+                color: isTaken ? colors[action] : 'rgba(240,238,232,0.45)',
+                borderBottom: isTaken ? `2px solid ${colors[action]}` : '2px solid transparent',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              {isTaken ? '✓ ' : ''}{labels[action]}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* What to Watch */}
+      {s.what_to_watch && (
+        <div style={{
+          padding: '8px 10px',
+          background: 'rgba(240,165,0,0.03)', borderLeft: '2px solid rgba(240,165,0,0.3)',
+          marginBottom: '10px',
         }}>
-          <div style={{ fontSize: '9px', fontWeight: '700', textTransform: 'uppercase', color: '#94A3B8', marginBottom: '3px' }}>
-            🤖 AI Recommendation
-          </div>
-          <div style={{ fontSize: '11px', color: '#E2E8F0', fontWeight: '600', marginBottom: '2px' }}>
-            {actionRec.type.replace(/_/g, ' ')}
-          </div>
-          <div style={{ fontSize: '10px', color: '#94A3B8', lineHeight: '1.4' }}>
-            {actionRec.reasoning}
-          </div>
+          <div style={{
+            fontFamily: "'IBM Plex Mono', monospace", fontSize: '9px',
+            color: 'rgba(240,238,232,0.2)', letterSpacing: '0.08em', marginBottom: '4px',
+          }}>WATCH</div>
+          <div style={{
+            fontFamily: "'DM Sans', sans-serif", fontSize: '13px',
+            color: 'rgba(240,238,232,0.6)', lineHeight: '1.5',
+          }}>{s.what_to_watch}</div>
         </div>
       )}
 
-      {/* Action Buttons — functional with feedback */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-        {['ADD_WATCHLIST', 'REDUCE_EXPOSURE', 'INCREASE_MONITORING'].map(action => (
-          <button
-            key={action}
-            onClick={() => handleAction(action)}
-            disabled={actionLoading === action}
-            style={{
-              flex: 1, padding: '8px 10px', borderRadius: '6px', border: 'none',
-              cursor: 'pointer', fontSize: '9px', fontWeight: '800', textTransform: 'uppercase',
-              letterSpacing: '0.5px', transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-              background: actionDone[action]
-                ? 'rgba(59, 179, 113, 0.9)'
-                : action === 'REDUCE_EXPOSURE' ? 'rgba(226, 75, 74, 0.2)'
-                : action === 'ADD_WATCHLIST' ? 'rgba(59, 179, 113, 0.2)' : 'rgba(239, 159, 39, 0.2)',
-              color: actionDone[action]
-                ? '#FFFFFF'
-                : action === 'REDUCE_EXPOSURE' ? '#E24B4A'
-                : action === 'ADD_WATCHLIST' ? '#3CB371' : '#EF9F27',
-              boxShadow: actionDone[action] ? '0 0 12px rgba(59, 179, 113, 0.4)' : 'none',
-              transform: actionLoading === action ? 'scale(0.98)' : 'scale(1)',
-            }}
-          >
-            {actionLoading === action ? 'SYNCING...' : actionDone[action] ? '✓ ACTION SAVED' : action.replace(/_/g, ' ')}
-          </button>
-        ))}
-      </div>
-
-      {/* Hindi Audio */}
+      {/* Hindi Audio Brief */}
       {s.audio_path && (
-        <div style={{ marginTop: '8px' }}>
-          <div style={{ fontSize: '11px', color: '#64748B', marginBottom: '4px' }}>🎧 Audio Brief (Hinglish)</div>
-          <audio controls style={{ width: '100%', height: '32px' }}
-            src={`${API_BASE}/api/signal/${s.id}/audio`} />
+        <div style={{
+          background: '#0D1117',
+          border: '1px solid rgba(240,165,0,0.15)',
+          padding: '10px 12px', marginBottom: '8px',
+        }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px',
+          }}>
+            <span style={{
+              width: '5px', height: '5px', borderRadius: '50%',
+              background: '#F0A500', flexShrink: 0,
+            }} />
+            <span style={{
+              fontFamily: "'IBM Plex Mono', monospace", fontSize: '9px',
+              letterSpacing: '0.1em', color: '#F0A500',
+            }}>HINDI AUDIO BRIEF</span>
+          </div>
+          <audio
+            controls
+            src={`${API_BASE}/api/signal/${s.id}/audio`}
+            style={{
+              width: '100%', height: '32px',
+              filter: 'invert(85%) hue-rotate(180deg) contrast(1.5) brightness(1.2)',
+              borderRadius: 0,
+            }}
+          />
+          <div style={{
+            fontFamily: "'IBM Plex Mono', monospace", fontSize: '8px',
+            color: 'rgba(240,238,232,0.15)', marginTop: '4px',
+          }}>
+            ~30s Hinglish Orpheus TTS
+          </div>
         </div>
       )}
-
-      {/* Disclaimer */}
-      <div style={{
-        marginTop: '12px', padding: '8px', borderRadius: '6px',
-        background: 'rgba(148, 163, 184, 0.05)', border: '1px solid rgba(148, 163, 184, 0.1)',
-        color: '#475569', fontSize: '10px', lineHeight: '1.5',
-      }}>
-        {s.disclaimer || 'This is for research only. Not investment advice.'}
-      </div>
-    </div>
-  );
-}
-
-function Section({ title, icon, children }) {
-  return (
-    <div style={{ marginBottom: '14px' }}>
-      <div style={{
-        fontSize: '11px', fontWeight: '700', color: '#94A3B8', marginBottom: '6px',
-        textTransform: 'uppercase', letterSpacing: '0.5px',
-      }}>
-        {icon} {title}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function DataPoint({ label, value, highlight = false }) {
-  return (
-    <div style={{
-      padding: '5px 8px', borderRadius: '5px',
-      background: highlight ? 'rgba(226, 75, 74, 0.1)' : 'rgba(148, 163, 184, 0.05)',
-      border: highlight ? '1px solid rgba(226, 75, 74, 0.3)' : '1px solid rgba(148, 163, 184, 0.1)',
-    }}>
-      <div style={{ fontSize: '8px', color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.3px' }}>{label}</div>
-      <div style={{ fontSize: '11px', color: highlight ? '#E24B4A' : '#E2E8F0', fontWeight: '600', marginTop: '1px' }}>{value}</div>
-    </div>
-  );
-}
-
-function MiniStat({ label, value }) {
-  return (
-    <div style={{
-      padding: '5px 6px', borderRadius: '5px', textAlign: 'center',
-      background: 'rgba(79, 134, 198, 0.08)', border: '1px solid rgba(79, 134, 198, 0.15)',
-    }}>
-      <div style={{ fontSize: '8px', color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.3px' }}>{label}</div>
-      <div style={{ fontSize: '12px', color: '#4F86C6', fontWeight: '700', marginTop: '1px' }}>{value}</div>
     </div>
   );
 }

@@ -1,145 +1,87 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
 
-const API_BASE = 'http://localhost:8000';
-
-const SEVERITY_STYLES = {
-  high: { bg: 'rgba(239, 68, 68, 0.15)', color: '#EF4444', border: 'rgba(239, 68, 68, 0.3)' },
-  medium: { bg: 'rgba(245, 158, 11, 0.15)', color: '#F59E0B', border: 'rgba(245, 158, 11, 0.3)' },
-  low: { bg: 'rgba(16, 185, 129, 0.15)', color: '#10B981', border: 'rgba(16, 185, 129, 0.3)' },
-};
-
-function formatTimeAgo(isoTimestamp) {
-  if (!isoTimestamp) return 'Building...';
-  const diff = Math.floor((Date.now() - new Date(isoTimestamp).getTime()) / 1000);
-  if (diff < 60) return 'Just now';
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
-}
-
-export default function SignalFeed({ signals = [], onSignalClick, selectedSignalId }) {
+export default function SignalFeed({
+  signals = [], allSignalsLoaded = false, onSignalClick,
+  selectedSignalId, username = '',
+}) {
   const [mounted, setMounted] = useState(false);
-  const [pipelineInfo, setPipelineInfo] = useState(null);
-  const [, setTick] = useState(0); // force re-render for relative time
-
   useEffect(() => { setMounted(true); }, []);
 
-  // Fetch pipeline status for real timing
-  useEffect(() => {
-    const fetchPipelineStatus = async () => {
-      try {
-        const res = await axios.get(`${API_BASE}/api/pipeline/status`);
-        setPipelineInfo(res.data);
-      } catch { /* ignore */ }
-    };
-    fetchPipelineStatus();
-    const interval = setInterval(fetchPipelineStatus, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Update relative time every 30s
-  useEffect(() => {
-    const interval = setInterval(() => setTick(t => t + 1), 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const directCount = signals.filter(s => s.portfolio_relevance === 'direct').length;
-  const lastRunTime = pipelineInfo?.started_at || pipelineInfo?.last_run;
-  const lastRunDisplay = lastRunTime ? formatTimeAgo(lastRunTime) : (signals.length > 0 ? 'Active' : 'Building...');
-
-  // Calculate next run (pipeline runs every 15 min)
-  const getNextRun = () => {
-    if (!lastRunTime) return '';
-    const lastMs = new Date(lastRunTime).getTime();
-    const nextMs = lastMs + 15 * 60 * 1000;
-    const diffSec = Math.max(0, Math.floor((nextMs - Date.now()) / 1000));
-    if (diffSec <= 0) return 'Imminent';
-    if (diffSec < 60) return `${diffSec}s`;
-    return `${Math.floor(diffSec / 60)}m`;
+  // Get saved actions for this user
+  const getSavedActions = (signalId) => {
+    try {
+      const existing = JSON.parse(localStorage.getItem(`et_actions_${username}`) || '[]');
+      return existing.filter(a => a.signal_id === signalId).map(a => a.action_type);
+    } catch { return []; }
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* Stats Row */}
-      <div style={{
-        display: 'flex', gap: '16px', padding: '16px',
-        borderBottom: '1px solid var(--border-medium)',
-        background: 'var(--glass-light)',
-      }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: '28px', fontWeight: '800', color: 'var(--text-primary)' }}>{signals.length}</div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '600' }}>Active Signals</div>
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: '28px', fontWeight: '800', color: 'var(--accent-blue)' }}>{directCount}</div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '600' }}>In Portfolio</div>
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: '15px', fontWeight: '600', color: 'var(--text-secondary)', marginTop: '4px' }}>
-            {lastRunDisplay}
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: '600' }}>Last Pipeline Sync</div>
-          {getNextRun() && (
-            <div style={{ fontSize: '9px', color: '#475569', marginTop: '2px' }}>
-              Next: {getNextRun()}
-            </div>
-          )}
-        </div>
-      </div>
-
       {/* Signal Cards */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
-        {signals.length === 0 && (
+      <div style={{ flex: 1, overflowY: 'auto', padding: '8px 10px' }}>
+        {/* Empty state: only show when backend hasn't sent any signals ever */}
+        {signals.length === 0 && !allSignalsLoaded && (
+          <EmptyState />
+        )}
+
+        {/* Filtered-out state: signals exist but all are below threshold */}
+        {signals.length === 0 && allSignalsLoaded && (
           <div style={{
-            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            height: '100%', padding: '32px', textAlign: 'center', color: 'var(--text-muted)',
-            animation: 'slideUpFade 0.6s ease-out forwards'
+            padding: '24px 12px', textAlign: 'center',
           }}>
             <div style={{
-              fontSize: '40px', marginBottom: '16px',
-              animation: 'pulseSubtle 2s infinite ease-in-out'
-            }}>📡</div>
-            <div style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '8px' }}>No Signals Yet</div>
-            <div style={{ fontSize: '13px', maxWidth: '250px', lineHeight: '1.5' }}>
-              The multi-agent orchestrator is currently scanning the market. Signals will appear here once connections are found.
+              fontFamily: "'IBM Plex Mono', monospace", fontSize: '10px',
+              color: 'rgba(240,238,232,0.2)', letterSpacing: '0.08em',
+            }}>
+              No signals above this confidence threshold.
             </div>
           </div>
         )}
+
         {signals.map((signal, index) => {
           const isSelected = selectedSignalId === signal.id;
-          const severity = SEVERITY_STYLES[signal.severity] || SEVERITY_STYLES.low;
+          const savedActions = getSavedActions(signal.id);
+          const hasActions = savedActions.length > 0;
+
+          const sevStyles = {
+            high: { bg: 'rgba(226,75,74,0.08)', color: '#E24B4A', border: 'rgba(226,75,74,0.2)' },
+            medium: { bg: 'rgba(240,165,0,0.08)', color: '#F0A500', border: 'rgba(240,165,0,0.2)' },
+            low: { bg: 'rgba(14,165,160,0.08)', color: '#0EA5A0', border: 'rgba(14,165,160,0.2)' },
+          };
+          const severity = sevStyles[signal.severity] || sevStyles.low;
 
           return (
             <div
               key={signal.id || index}
               onClick={() => onSignalClick?.(signal)}
               style={{
-                background: isSelected ? 'rgba(59, 130, 246, 0.1)' : 'var(--bg-elevated)',
-                border: isSelected ? '1px solid var(--accent-blue)' : '1px solid var(--border-subtle)',
-                borderRadius: 'var(--radius-md)',
-                padding: '16px',
-                marginBottom: '12px',
+                background: isSelected ? 'rgba(240,165,0,0.04)' : 'rgba(255,255,255,0.015)',
+                border: isSelected ? '1px solid rgba(240,165,0,0.2)' : '1px solid rgba(255,255,255,0.04)',
+                padding: '12px',
+                marginBottom: '6px',
                 cursor: 'pointer',
-                transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-                transform: mounted ? 'translateX(0)' : 'translateX(100%)',
-                transitionDelay: `${index * 80}ms`,
+                transition: 'all 0.15s ease',
+                opacity: mounted ? 1 : 0,
+                transform: mounted ? 'translateY(0)' : 'translateY(8px)',
+                transitionDelay: `${index * 50}ms`,
               }}
             >
               {/* Badges */}
-              <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: '4px', marginBottom: '5px', flexWrap: 'wrap', alignItems: 'center' }}>
                 <span style={{
-                  fontSize: '10px', fontWeight: '700', textTransform: 'uppercase',
-                  padding: '2px 8px', borderRadius: '4px', letterSpacing: '0.5px',
+                  fontSize: '9px', fontWeight: '500', textTransform: 'uppercase',
+                  padding: '2px 6px', letterSpacing: '0.06em',
                   background: severity.bg, color: severity.color,
+                  fontFamily: "'IBM Plex Mono', monospace",
                 }}>
                   {signal.severity}
                 </span>
                 {signal.freshness === 'BREAKING' && (
                   <span style={{
-                    fontSize: '10px', fontWeight: '700', textTransform: 'uppercase',
-                    padding: '2px 8px', borderRadius: '4px', letterSpacing: '0.5px',
-                    background: '#FEE2E2', color: '#DC2626',
+                    fontSize: '8px', fontWeight: '500', textTransform: 'uppercase',
+                    padding: '1px 5px', letterSpacing: '0.06em',
+                    background: 'rgba(226,75,74,0.1)', color: '#E24B4A',
+                    fontFamily: "'IBM Plex Mono', monospace",
                     animation: 'pulse 1.5s ease-in-out infinite',
                   }}>
                     BREAKING
@@ -147,56 +89,61 @@ export default function SignalFeed({ signals = [], onSignalClick, selectedSignal
                 )}
                 {signal.portfolio_relevance === 'direct' && (
                   <span style={{
-                    fontSize: '10px', fontWeight: '700', padding: '2px 8px',
-                    borderRadius: '4px', background: '#DBEAFE', color: '#2563EB',
+                    fontSize: '8px', fontWeight: '500', padding: '1px 5px',
+                    background: 'rgba(240,165,0,0.08)', color: '#F0A500',
+                    fontFamily: "'IBM Plex Mono', monospace",
                   }}>
                     PORTFOLIO
                   </span>
                 )}
+                {hasActions && (
+                  <span style={{
+                    fontSize: '8px', fontWeight: '500', padding: '1px 5px',
+                    background: 'rgba(59,179,113,0.08)', color: '#3CB371',
+                    fontFamily: "'IBM Plex Mono', monospace",
+                  }}>
+                    {savedActions.length} ACTION{savedActions.length > 1 ? 'S' : ''}
+                  </span>
+                )}
                 <span style={{
-                  fontSize: '10px', fontWeight: '600', padding: '2px 8px', borderRadius: '4px',
-                  background: 'rgba(148, 163, 184, 0.15)', color: '#94A3B8',
+                  fontSize: '8px', fontWeight: '400', padding: '1px 5px',
+                  color: 'rgba(240,238,232,0.15)',
+                  fontFamily: "'IBM Plex Mono', monospace", marginLeft: 'auto',
                 }}>
                   {signal.signal_type?.replace(/_/g, ' ')}
                 </span>
               </div>
 
               {/* Headline */}
-              <div style={{ fontWeight: '700', color: '#E2E8F0', fontSize: '14px', marginBottom: '6px' }}>
+              <div style={{
+                fontWeight: '500', color: '#F0EEE8', fontSize: '15px', marginBottom: '4px',
+                fontFamily: "'DM Sans', sans-serif", lineHeight: '1.3',
+              }}>
                 {signal.headline}
               </div>
 
               {/* Summary */}
-              <div style={{ color: '#94A3B8', fontSize: '12px', lineHeight: '1.5', marginBottom: '8px' }}>
-                {signal.summary?.slice(0, 150)}{signal.summary?.length > 150 ? '...' : ''}
+              <div style={{
+                color: 'rgba(240,238,232,0.45)', fontSize: '13px', lineHeight: '1.4', marginBottom: '6px',
+                fontFamily: "'DM Sans', sans-serif", fontWeight: '300',
+              }}>
+                {signal.summary?.slice(0, 120)}{signal.summary?.length > 120 ? '...' : ''}
               </div>
 
               {/* Confidence Bar */}
-              <div style={{ marginBottom: '6px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
-                  <span style={{ fontSize: '10px', color: '#64748B' }}>Confidence</span>
-                  <span style={{ fontSize: '10px', color: '#94A3B8', fontWeight: '600' }}>{signal.confidence}%</span>
-                </div>
-                <div style={{ height: '4px', background: 'rgba(148, 163, 184, 0.15)', borderRadius: '2px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div style={{ flex: 1, height: '2px', background: 'rgba(255,255,255,0.04)' }}>
                   <div style={{
-                    height: '100%', borderRadius: '2px',
+                    height: '100%',
                     width: `${signal.confidence}%`,
-                    background: signal.confidence > 70 ? '#E24B4A' : signal.confidence > 50 ? '#EF9F27' : '#3CB371',
+                    background: signal.confidence > 70 ? '#E24B4A' : signal.confidence > 50 ? '#F0A500' : '#0EA5A0',
                     transition: 'width 0.5s ease',
                   }} />
                 </div>
-              </div>
-
-              {/* Sources */}
-              <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                {(signal.sources || []).slice(0, 3).map((src, i) => (
-                  <span key={i} style={{
-                    fontSize: '9px', color: '#64748B', padding: '1px 6px',
-                    borderRadius: '3px', background: 'rgba(148, 163, 184, 0.1)',
-                  }}>
-                    {src.source || src.title?.slice(0, 30)}
-                  </span>
-                ))}
+                <span style={{
+                  fontSize: '9px', color: '#F0A500', fontWeight: '500',
+                  fontFamily: "'IBM Plex Mono', monospace", minWidth: '28px', textAlign: 'right',
+                }}>{signal.confidence}%</span>
               </div>
             </div>
           );
@@ -209,6 +156,64 @@ export default function SignalFeed({ signals = [], onSignalClick, selectedSignal
           50% { opacity: 0.5; }
         }
       `}</style>
+    </div>
+  );
+}
+
+/* Empty state - shown only when backend hasn't loaded signals yet */
+function EmptyState() {
+  const events = [
+    { date: 'Jan 18', color: '#4F86C6', badge: 'ET MARKETS', title: 'FIIs pull ₹8,000 Cr from Adani stocks' },
+    { date: 'Jan 20', color: '#4F86C6', badge: 'ET ECONOMY', title: 'Adani debt under scrutiny' },
+    { date: 'Jan 21', color: '#F0A500', badge: 'NSE', title: 'Large block sold in Adani Enterprises' },
+    { date: 'Jan 21', color: '#3CB371', badge: 'SIGNAL', title: 'TRIPLE THREAT at 78%' },
+    { date: 'Jan 25', color: '#E24B4A', badge: 'CRASH', title: 'Hindenburg. ₹11.5L Cr wiped.' },
+  ];
+
+  return (
+    <div style={{ padding: '12px', animation: 'slideUpFade 0.6s ease-out forwards' }}>
+      <div style={{
+        display: 'inline-flex', alignItems: 'center', gap: '5px',
+        padding: '2px 8px', marginBottom: '12px',
+        background: 'rgba(59,179,113,0.06)', border: '1px solid rgba(59,179,113,0.15)',
+        fontFamily: "'IBM Plex Mono', monospace", fontSize: '8px',
+        color: '#3CB371', letterSpacing: '0.06em',
+      }}>
+        <span style={{
+          width: '4px', height: '4px', borderRadius: '50%', background: '#3CB371',
+          animation: 'pulse 1.5s infinite',
+        }} />
+        Pipeline running
+      </div>
+
+      {events.map((evt, i) => (
+        <div key={i} style={{
+          display: 'flex', gap: '8px', marginBottom: '8px',
+          paddingLeft: '8px', borderLeft: `2px solid ${evt.color}`,
+        }}>
+          <div>
+            <span style={{
+              fontFamily: "'IBM Plex Mono', monospace", fontSize: '8px',
+              color: 'rgba(240,238,232,0.15)', marginRight: '4px',
+            }}>{evt.date}</span>
+            <span style={{
+              fontFamily: "'IBM Plex Mono', monospace", fontSize: '7px',
+              color: evt.color, fontWeight: '500',
+            }}>{evt.badge}</span>
+            <div style={{
+              fontSize: '11px', color: 'rgba(240,238,232,0.6)', marginTop: '1px',
+              fontFamily: "'DM Sans', sans-serif", fontWeight: '400',
+            }}>{evt.title}</div>
+          </div>
+        </div>
+      ))}
+
+      <div style={{
+        fontFamily: "'IBM Plex Mono', monospace", fontSize: '8px',
+        color: 'rgba(240,238,232,0.1)', fontStyle: 'italic', marginTop: '8px',
+      }}>
+        Illustrative. Adani Jan 2023.
+      </div>
     </div>
   );
 }

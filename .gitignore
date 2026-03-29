@@ -5,5 +5,30 @@ venv/
 *.pyc
 .ipynb_checkpoints/
 .DS_Store
-data/audio/*
-!data/audio/.gitkeep
+
+# Runtime data (generated at startup)
+backend/data/
+
+# Debug / migration scripts (keep local, not in repo)
+backend/backfill_chains.py
+backend/check_data.py
+backend/check_portfolio.py
+backend/fix_conflicting.py
+backend/patch_tickers.py
+backend/purge_old_signals.py
+backend/rescore.py
+backend/verify_fields.py
+backend/verify_portfolio.py
+backend/mosaic_traceback.txt
+backend/manual_run.py
+
+# Internal docs (not for submission)
+Build_instructions.docx
+Build_instructions_extracted.txt
+instructions.md
+UX.md
+graph_redesign_1.png
+graph_redesign_final.png
+
+# Playwright
+.playwright-mcp/

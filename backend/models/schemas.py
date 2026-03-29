@@ -3,7 +3,7 @@ ET Mosaic — Pydantic v2 data models.
 All other modules import from here.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 from pydantic import BaseModel, Field
@@ -80,7 +80,7 @@ class Connection(BaseModel):
     market_data_confirmation: float = 0.0
     historical_match: float = 0.0
     sentiment_velocity: float = 0.0
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class SignalCard(BaseModel):
@@ -110,6 +110,14 @@ class SignalCard(BaseModel):
     contagion_type: str = "isolated"
     affected_peers: list[str] = Field(default_factory=list)
     sector: str = "Other"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    composite_score: float = 0.0
+    # Competition-critical fields
+    analysis_chain: list[dict] = Field(default_factory=list)
+    conflicting_signals: dict = Field(default_factory=dict)
+    filing_citation: list[str] = Field(default_factory=list)
+    portfolio_impact: dict = Field(default_factory=dict)
+    matched_holdings: list[str] = Field(default_factory=list)
 
 
 class AuditEntry(BaseModel):
@@ -122,7 +130,7 @@ class AuditEntry(BaseModel):
 
 class PipelineState(BaseModel):
     run_id: str = Field(default_factory=lambda: uuid.uuid4().hex[:8])
-    started_at: datetime = Field(default_factory=datetime.utcnow)
+    started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     status: PipelineStatus = PipelineStatus.RUNNING
     articles_ingested: int = 0
     extractions_complete: int = 0

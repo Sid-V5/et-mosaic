@@ -27,8 +27,8 @@ const SECTOR_COLORS = {
 
 const SEVERITY_COLORS = {
   high: '#E24B4A',
-  medium: '#EF9F27',
-  low: 'rgba(148, 163, 184, 0.4)',
+  medium: '#F59E0B',
+  low: '#4B5563',
 };
 
 // Sector positions for clustering (normalized 0-1 then scaled)
@@ -171,6 +171,10 @@ export default function KnowledgeGraph({ nodes = [], edges = [], onNodeClick, se
       .scaleExtent([0.2, 5])
       .on('zoom', (event) => {
         g.attr('transform', event.transform);
+        const k = event.transform.k;
+        // Dynamically toggle article labels based on zoom level or high connectivity
+        g.selectAll('.article-label')
+          .style('opacity', d => ((d.connections_count || 0) >= 4 || k >= 0.8) ? 1 : 0);
       });
     svg.call(zoom);
 
@@ -244,16 +248,15 @@ export default function KnowledgeGraph({ nodes = [], edges = [], onNodeClick, se
       .join('line')
       .attr('stroke', d => SEVERITY_COLORS[d.severity] || SEVERITY_COLORS.low)
       .attr('stroke-width', d => {
-        if (d.severity === 'high') return 2.5;
-        if (d.severity === 'medium') return 1.8;
-        return 0.6;
+        if (d.severity === 'high') return 2;
+        if (d.severity === 'medium') return 1.5;
+        return 1;
       })
       .attr('stroke-opacity', d => {
         if (d.severity === 'high') return 0.9;
-        if (d.severity === 'medium') return 0.5;
-        return 0.15;
-      })
-      .attr('stroke-dasharray', d => d.severity === 'high' ? '6,3' : 'none');
+        if (d.severity === 'medium') return 0.7;
+        return 0.4;
+      });
 
     // Nodes
     const nodeGroup = g.append('g')
@@ -300,7 +303,7 @@ export default function KnowledgeGraph({ nodes = [], edges = [], onNodeClick, se
         return 0.5;
       });
 
-    // Labels on sector hubs and company nodes
+    // Labels — sector hubs always, company always, articles only if connections >= 4
     nodeGroup.filter(d => d.type === 'sector')
       .append('text')
       .text(d => d.label)
@@ -309,10 +312,10 @@ export default function KnowledgeGraph({ nodes = [], edges = [], onNodeClick, se
       .attr('fill', d => SECTOR_COLORS[d.sector] || '#94A3B8')
       .attr('font-size', '11px')
       .attr('font-weight', '700')
-      .attr('font-family', "'Outfit', sans-serif")
+      .attr('font-family', "'DM Sans', sans-serif")
       .attr('letter-spacing', '0.5px')
       .attr('paint-order', 'stroke')
-      .attr('stroke', '#0A1628')
+      .attr('stroke', '#020508')
       .attr('stroke-width', '3px');
 
     nodeGroup.filter(d => d.type === 'company')
@@ -321,12 +324,28 @@ export default function KnowledgeGraph({ nodes = [], edges = [], onNodeClick, se
       .attr('text-anchor', 'middle')
       .attr('dy', d => getRadius(d) + 14)
       .attr('fill', '#CBD5E1')
-      .attr('font-size', '9px')
+      .attr('font-size', '11px')
       .attr('font-weight', '600')
-      .attr('font-family', "'Outfit', sans-serif")
+      .attr('font-family', "'DM Sans', sans-serif")
       .attr('paint-order', 'stroke')
-      .attr('stroke', '#0A1628')
+      .attr('stroke', '#020508')
       .attr('stroke-width', '2.5px');
+
+    // Article labels - class added for selection
+    nodeGroup.filter(d => d.type === 'article')
+      .append('text')
+      .attr('class', 'article-label')
+      .text(d => d.label.length > 18 ? d.label.slice(0, 17) + '…' : d.label)
+      .attr('text-anchor', 'middle')
+      .attr('dy', d => getRadius(d) + 12)
+      .attr('fill', 'rgba(240,238,232,0.35)')
+      .attr('font-size', '8px')
+      .attr('font-weight', '400')
+      .attr('font-family', "'IBM Plex Mono', monospace")
+      .attr('paint-order', 'stroke')
+      .attr('stroke', '#020508')
+      .attr('stroke-width', '2px')
+      .style('opacity', d => ((d.connections_count || 0) >= 4) ? 1 : 0);
 
     // Drag behavior
     const drag = d3.drag()
@@ -424,7 +443,8 @@ export default function KnowledgeGraph({ nodes = [], edges = [], onNodeClick, se
     sim.alpha(1).restart();
 
     return () => sim.stop();
-  }, [filteredNodes, filteredEdges, dimensions, onNodeClick]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredNodes, filteredEdges, dimensions]);
 
   // Stats
   const articleCount = filteredNodes.filter(n => n.type === 'article').length;
@@ -436,8 +456,8 @@ export default function KnowledgeGraph({ nodes = [], edges = [], onNodeClick, se
         width={dimensions.width}
         height={dimensions.height}
         style={{
-          background: 'radial-gradient(ellipse at 50% 50%, #0D1B2A 0%, #050B14 70%)',
-          borderRadius: '12px',
+          background: 'radial-gradient(ellipse at 50% 50%, #080E14 0%, #020508 70%)',
+          borderRadius: '0',
           display: 'block',
         }}
       />
@@ -448,17 +468,17 @@ export default function KnowledgeGraph({ nodes = [], edges = [], onNodeClick, se
         style={{
           display: 'none',
           position: 'absolute',
-          background: 'rgba(10, 18, 40, 0.96)',
-          border: '1px solid rgba(148, 163, 184, 0.2)',
-          borderRadius: '10px',
-          padding: '12px 16px',
-          color: '#E2E8F0',
-          fontSize: '12px',
+          background: 'rgba(5, 10, 16, 0.96)',
+          border: '1px solid rgba(255,255,255,0.07)',
+          borderRadius: '0',
+          padding: '10px 12px',
+          color: '#F0EEE8',
+          fontSize: '11px',
           pointerEvents: 'none',
           zIndex: 20,
-          maxWidth: '280px',
+          maxWidth: '260px',
           backdropFilter: 'blur(12px)',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
         }}
       />
 
@@ -470,24 +490,24 @@ export default function KnowledgeGraph({ nodes = [], edges = [], onNodeClick, se
         display: 'flex',
         gap: '12px',
         padding: '8px 14px',
-        background: 'rgba(10, 18, 40, 0.85)',
-        borderRadius: '10px',
+        background: 'rgba(5, 10, 16, 0.85)',
+        borderRadius: '0',
         backdropFilter: 'blur(10px)',
-        border: '1px solid rgba(148, 163, 184, 0.1)',
+        border: '1px solid rgba(255,255,255,0.05)',
       }}>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '16px', fontWeight: '800', color: '#F8FAFC' }}>{articleCount}</div>
-          <div style={{ fontSize: '9px', color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.8px', fontWeight: '600' }}>Articles</div>
+          <div style={{ fontSize: '32px', fontWeight: '500', color: '#F0EEE8', fontFamily: "'IBM Plex Mono', monospace" }}>{articleCount}</div>
+          <div style={{ fontSize: '12px', color: 'rgba(240,238,232,0.3)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: '600', fontFamily: "'IBM Plex Mono', monospace" }}>Articles</div>
         </div>
-        <div style={{ width: '1px', background: 'rgba(148, 163, 184, 0.15)' }} />
+        <div style={{ width: '1px', background: 'rgba(255,255,255,0.07)' }} />
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '16px', fontWeight: '800', color: '#F8FAFC' }}>{filteredEdges.length}</div>
-          <div style={{ fontSize: '9px', color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.8px', fontWeight: '600' }}>Connections</div>
+          <div style={{ fontSize: '32px', fontWeight: '500', color: '#F0EEE8', fontFamily: "'IBM Plex Mono', monospace" }}>{filteredEdges.length}</div>
+          <div style={{ fontSize: '12px', color: 'rgba(240,238,232,0.3)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: '600', fontFamily: "'IBM Plex Mono', monospace" }}>Connections</div>
         </div>
-        <div style={{ width: '1px', background: 'rgba(148, 163, 184, 0.15)' }} />
+        <div style={{ width: '1px', background: 'rgba(255,255,255,0.07)' }} />
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '16px', fontWeight: '800', color: '#F8FAFC' }}>{presentSectors.length}</div>
-          <div style={{ fontSize: '9px', color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.8px', fontWeight: '600' }}>Sectors</div>
+          <div style={{ fontSize: '32px', fontWeight: '500', color: '#F0EEE8', fontFamily: "'IBM Plex Mono', monospace" }}>{presentSectors.length}</div>
+          <div style={{ fontSize: '12px', color: 'rgba(240,238,232,0.3)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: '600', fontFamily: "'IBM Plex Mono', monospace" }}>Sectors</div>
         </div>
       </div>
 
@@ -499,7 +519,7 @@ export default function KnowledgeGraph({ nodes = [], edges = [], onNodeClick, se
         padding: '6px 10px',
         background: 'rgba(10, 18, 40, 0.7)',
         borderRadius: '6px',
-        fontSize: '10px',
+        fontSize: '12px',
         color: '#475569',
         backdropFilter: 'blur(4px)',
       }}>
@@ -509,18 +529,18 @@ export default function KnowledgeGraph({ nodes = [], edges = [], onNodeClick, se
       {/* Sector Filter Bar */}
       <div style={{
         position: 'absolute',
-        top: '56px',
+        top: '100px',
         left: '12px',
         display: 'flex',
         flexWrap: 'wrap',
-        gap: '4px',
+        gap: '6px',
         maxWidth: '55%',
       }}>
         <button
           onClick={() => setActiveSector(null)}
           style={{
-            padding: '3px 10px', borderRadius: '12px', border: 'none',
-            cursor: 'pointer', fontSize: '9px', fontWeight: '600',
+            padding: '4px 12px', borderRadius: '12px', border: 'none',
+            cursor: 'pointer', fontSize: '11px', fontWeight: '600',
             background: !activeSector ? 'rgba(79, 134, 198, 0.4)' : 'rgba(10, 18, 40, 0.7)',
             color: !activeSector ? '#F8FAFC' : '#64748B',
             backdropFilter: 'blur(4px)',
@@ -534,8 +554,8 @@ export default function KnowledgeGraph({ nodes = [], edges = [], onNodeClick, se
             key={sector}
             onClick={() => setActiveSector(activeSector === sector ? null : sector)}
             style={{
-              padding: '3px 10px', borderRadius: '12px', border: 'none',
-              cursor: 'pointer', fontSize: '9px', fontWeight: '600',
+              padding: '4px 12px', borderRadius: '12px', border: 'none',
+              cursor: 'pointer', fontSize: '11px', fontWeight: '600',
               display: 'flex', alignItems: 'center', gap: '4px',
               background: activeSector === sector ? `${SECTOR_COLORS[sector]}40` : 'rgba(10, 18, 40, 0.7)',
               color: activeSector === sector ? '#F8FAFC' : '#94A3B8',
@@ -560,12 +580,12 @@ export default function KnowledgeGraph({ nodes = [], edges = [], onNodeClick, se
         bottom: '12px',
         right: '12px',
         display: 'flex',
-        gap: '10px',
-        padding: '6px 12px',
-        background: 'rgba(10, 18, 40, 0.85)',
-        borderRadius: '8px',
+        gap: '12px',
+        padding: '8px 14px',
+        background: 'rgba(5, 10, 16, 0.85)',
+        borderRadius: '0',
         backdropFilter: 'blur(10px)',
-        border: '1px solid rgba(148, 163, 184, 0.1)',
+        border: '1px solid rgba(255,255,255,0.05)',
       }}>
         {[['High', '#E24B4A'], ['Medium', '#EF9F27'], ['Low', 'rgba(148,163,184,0.5)']].map(([label, color]) => {
           const key = label.toLowerCase();
@@ -575,12 +595,12 @@ export default function KnowledgeGraph({ nodes = [], edges = [], onNodeClick, se
               key={label} 
               onClick={() => setSeverityFilter(prev => ({ ...prev, [key]: !prev[key] }))}
               style={{ 
-                display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer',
                 opacity: isActive ? 1 : 0.4, transition: 'opacity 0.2s ease'
               }}
             >
-              <div style={{ width: '14px', height: '2px', background: color, borderRadius: '1px' }} />
-              <span style={{ fontSize: '9px', color: '#64748B', fontWeight: '500' }}>{label}</span>
+              <div style={{ width: '18px', height: '3px', background: color, borderRadius: '1px' }} />
+              <span style={{ fontSize: '11px', color: '#64748B', fontWeight: '600' }}>{label}</span>
             </div>
           );
         })}
@@ -598,7 +618,7 @@ export default function KnowledgeGraph({ nodes = [], edges = [], onNodeClick, se
           borderRadius: '16px',
           border: '1px solid rgba(79, 134, 198, 0.3)',
           backdropFilter: 'blur(4px)',
-          fontSize: '10px',
+          fontSize: '11px',
           color: '#94A3B8',
           display: 'flex',
           alignItems: 'center',

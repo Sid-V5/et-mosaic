@@ -13,7 +13,7 @@ import os
 import re
 import logging
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import numpy as np  # type: ignore[import-untyped]
@@ -49,7 +49,8 @@ class MosaicBuilderAgent:
         chroma_store: Any = None,
         ta_service: Any = None,
     ) -> None:
-        self.client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+        from utils.groq_pool import get_groq_client
+        self.client = get_groq_client()
         self.chroma_store = chroma_store
         self.ta_service = ta_service
         self.accuracy_data = self._load_accuracy()
@@ -225,7 +226,9 @@ class MosaicBuilderAgent:
                     continue
 
                 a1, a2 = all_articles[i], all_articles[j]  # type: ignore[index]
-                if str(a1.get("source_channel", "")) == str(a2.get("source_channel", "")):
+                # BUG-10 FIX: Only skip if same URL (not same source channel)
+                # Mosaic Theory values fragments from same publication but different beats
+                if str(a1.get("url", "")) == str(a2.get("url", "")):
                     continue
 
                 c1 = to_list(a1.get("company_names", []))
@@ -256,6 +259,69 @@ class MosaicBuilderAgent:
             logger.warning(f"Mosaic: 0 candidates after filtering {n} articles")
             return []
 
+        # ── 4b. India relevance filter ────────────────────────────
+        # Define a strict blacklist of non-Indian global entities that often slip through.
+        GLOBAL_COMPANIES = {
+            'apple', 'tesla', 'nvidia', 'microsoft', 'google', 'meta', 'amazon',
+            'goldman sachs', 'jpmorgan', 'morgan stanley', 'netflix', 'openai',
+            'fed', 'federal reserve', 'ecb', 'boj'
+        }
+
+        # At least ONE article in the pair must be India-relevant AND neither should trigger the strict global blacklist.
+        india_sources = {'ET Markets', 'ET Economy', 'ET Corporate',
+                         'ET Tech', 'ET Policy', 'ET Stocks', 'ET Now',
+                         'Economic Times', 'Moneycontrol', 'NSE'}
+
+        def _is_india_relevant(article: dict) -> bool:
+            # Reject if it contains pure global companies
+            companies = [c.lower().strip() for c in self._to_python_list(article.get("company_names", []))]
+            if any(company in GLOBAL_COMPANIES for company in companies):
+                return False
+                
+            src = str(article.get("source_channel", ""))
+            if src in india_sources or src.startswith("ET "):
+                return True
+            if article.get("nse_tickers"):
+                return True
+            if not article.get("is_global_macro", False):
+                return True  # default: treat non-global as potentially Indian
+            return False
+
+        candidates_filtered = [
+            c for c in candidates
+            if _is_india_relevant(c["articles"][0]) or _is_india_relevant(c["articles"][1])
+        ]
+
+        # ── 4c. Edge Caching (Deduplication) ──────────────────────
+        # Do not re-evaluate pairs that have already been scored previously.
+        cache_path = os.path.join(DATA_DIR, "processed_pairs.json")
+        try:
+            with open(cache_path, "r") as f:
+                raw_cache = json.load(f)
+                # Support both legacy list format and new {key: timestamp} format
+                if isinstance(raw_cache, list):
+                    processed_pairs = {k: datetime.now(timezone.utc).isoformat() for k in raw_cache}
+                else:
+                    processed_pairs = raw_cache
+            # Prune entries older than 72 hours
+            cutoff = (datetime.now(timezone.utc) - timedelta(hours=72)).isoformat()
+            processed_pairs = {k: v for k, v in processed_pairs.items() if v >= cutoff}
+        except Exception:
+            processed_pairs = {}
+
+        novel_candidates = []
+        for c in candidates_filtered:
+            id1 = c["articles"][0]["id"]
+            id2 = c["articles"][1]["id"]
+            pair_key = f"{min(id1, id2)}_{max(id1, id2)}"
+            if pair_key not in processed_pairs:
+                novel_candidates.append(c)
+
+        logger.info(f"India filter: {len(candidates)} -> {len(candidates_filtered)}")
+        logger.info(f"Edge cache: {len(candidates_filtered)} -> {len(novel_candidates)} novel pairs")
+        
+        candidates = novel_candidates
+
         # ── 5. Score and verify candidates in parallel ──────────────
         async def _safe_score(c: dict) -> Optional[dict]:
             try:
@@ -266,6 +332,20 @@ class MosaicBuilderAgent:
 
         scored = await asyncio.gather(*[_safe_score(c) for c in candidates[:30]])  # type: ignore[index]
         connections = [c for c in scored if c is not None]
+
+        # Update edge cache with timestamps
+        now_iso = datetime.now(timezone.utc).isoformat()
+        for c in candidates[:30]:
+            id1 = c["articles"][0]["id"]
+            id2 = c["articles"][1]["id"]
+            pair_key = f"{min(id1, id2)}_{max(id1, id2)}"
+            processed_pairs[pair_key] = now_iso
+        
+        try:
+            with open(cache_path, "w") as f:
+                json.dump(processed_pairs, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to write edge cache: {e}")
 
         # ── 6. Write graph_data.json for D3 frontend ─────────────
         self._write_graph_data(connections, all_articles)
@@ -348,10 +428,8 @@ class MosaicBuilderAgent:
             days_old = 1
         base *= 0.96 ** days_old
 
-        # Accuracy weight
-        signal_type_guess = "TRIPLE_THREAT"
-        acc = self.accuracy_data.get(signal_type_guess, {}).get("accuracy", 50) / 100
-        base *= 0.5 + acc * 0.5
+        # Accuracy weight is now applied POST-LLM classification (see _build_connection)
+        # Removed the pre-LLM TRIPLE_THREAT guess that was biasing all candidates
 
         if base < 15:
             return None
@@ -395,15 +473,23 @@ class MosaicBuilderAgent:
                     break
 
         # ── build connection dict (all native Python types) ──────
+        # POST-LLM accuracy weight (BUG-9 fix: use actual signal type, not guess)
+        actual_signal_type = str(llm_result.get("signal_type", "TRIPLE_THREAT"))
+        acc = self.accuracy_data.get(actual_signal_type, {}).get("accuracy", 50) / 100
+        final_confidence = int(llm_result.get("confidence", int(base)))
+        # Apply accuracy as a credibility multiplier
+        final_confidence = int(final_confidence * (0.6 + acc * 0.4))
+        final_confidence = max(10, min(final_confidence, 100))
+
         return {
             "article_ids": [a["id"] for a in cand["articles"]],
             "company_names": resolved_companies,
             "nse_tickers": cand["shared_tickers"] or ([ticker] if ticker else []),
             "sector": resolved_sector,
             "event_types": all_events[:5],
-            "signal_type": str(llm_result.get("signal_type", "TRIPLE_THREAT")),
-            "pattern_matched": str(llm_result.get("signal_type", "TRIPLE_THREAT")),
-            "confidence": int(llm_result.get("confidence", int(base))),
+            "signal_type": actual_signal_type,
+            "pattern_matched": actual_signal_type,
+            "confidence": final_confidence,
             "severity": str(llm_result.get("severity", "medium")),
             "explanation": str(llm_result.get("explanation", "")),
             "market_data_confirmation": round(float(int(market_confirmation)) / 100.0, 2),  # type: ignore[call-overload]
@@ -444,7 +530,11 @@ class MosaicBuilderAgent:
                 # Instead of breaking on non-rate-limit errors (like JSON parsing fails), 
                 # we should continue testing the fallback model chain.
                 logger.warning(f"Mosaic: Model evaluation failed on {model_name} with error: {model_e}. Trying next...")
-                await asyncio.sleep(2)
+                # Rotate Groq API key on rate limit
+                if '429' in str(model_e) or 'rate_limit' in str(model_e):
+                    from utils.groq_pool import rotate_groq_key
+                    self.client = rotate_groq_key()
+                await asyncio.sleep(1)
                 continue
 
         # Fallback: assume signal with base score
@@ -493,8 +583,18 @@ class MosaicBuilderAgent:
         text = (title + " " + description).lower()
         best_sector = "Other"
         best_score = 0
+        import re as _re
         for sector, keywords in cls.SECTOR_KEYWORDS.items():
-            score = sum(1 for kw in keywords if kw in text)
+            score = 0
+            for kw in keywords:
+                # Word-boundary match: prevent 'oil' matching 'boiled', 'ai ' matching 'rain'
+                if len(kw) <= 3:
+                    # Short keywords need word boundaries to avoid false matches
+                    if _re.search(r'\b' + _re.escape(kw.strip()) + r'\b', text):
+                        score += 1
+                else:
+                    if kw in text:
+                        score += 1
             if score > best_score:
                 best_score = score
                 best_sector = sector
@@ -551,10 +651,13 @@ class MosaicBuilderAgent:
                 "sector": inferred,
                 "confidence": 0,
                 "connections_count": 0,
+                "is_global": bool(article.get("is_global_macro", False)),
                 "metadata": {
                     "title": article.get("title", ""),
                     "source": article.get("source_channel", ""),
                     "published_at": article.get("published_at", ""),
+                    "is_global_macro": bool(article.get("is_global_macro", False)),
+                    "nse_tickers": article.get("nse_tickers", []),
                 },
             }
 
@@ -578,7 +681,7 @@ class MosaicBuilderAgent:
                 "connections_count": 0,
                 "metadata": {"signal_type": "sector_hub"},
             }
-            for aid in aids[:20]:  # cap connections per sector hub
+            for aid in aids[:8]:  # cap connections per sector hub (was 20, reduced for cleaner graph)
                 _add_edge(aid, sid, "low", 25, "sector")
 
         # ── Step 3: Company hub nodes ────────────────────────────
@@ -653,8 +756,8 @@ class MosaicBuilderAgent:
         for kw, aids in keyword_groups.items():
             if len(aids) < 2:
                 continue
-            for i, a1 in enumerate(aids[:8]):
-                for a2 in aids[i + 1:8]:
+            for i, a1 in enumerate(aids[:5]):
+                for a2 in aids[i + 1:5]:
                     _add_edge(a1, a2, "medium", 45, f"keyword:{kw[:20]}")
 
         # ── Step 6: Drop orphan nodes ────────────────────────────
@@ -688,9 +791,42 @@ class MosaicBuilderAgent:
         graph_data = {"nodes": list(nodes.values()), "edges": edges}
 
         try:
-            with open(os.path.join(DATA_DIR, "graph_data.json"), "w") as f:
-                json.dump(graph_data, f, indent=2, default=str)
-            logger.info(f"Graph data written: {len(nodes)} nodes, {len(edges)} edges")
+            graph_path = os.path.join(DATA_DIR, "graph_data.json")
+            
+            # Merge with existing graph data instead of overwriting
+            existing_nodes = {}
+            try:
+                with open(graph_path, "r") as f:
+                    existing = json.load(f)
+                    for n in existing.get("nodes", []):
+                        if n.get("id"):
+                            existing_nodes[n["id"]] = n
+            except Exception:
+                pass  # No existing data or corrupt file
+            
+            # New data takes priority; existing fills gaps
+            for nid, node in nodes.items():
+                existing_nodes[nid] = node
+            
+            merged_graph = {
+                "nodes": list(existing_nodes.values()) if existing_nodes else list(nodes.values()),
+                "edges": edges,  # Edges are recomputed fresh each run
+            }
+            
+            # Atomic write: temp file + rename
+            import tempfile
+            tmp_fd, tmp_path = tempfile.mkstemp(dir=DATA_DIR, suffix=".json")
+            try:
+                with os.fdopen(tmp_fd, "w") as f:
+                    json.dump(merged_graph, f, indent=2, default=str)
+                os.replace(tmp_path, graph_path)
+            except Exception:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
+            logger.info(f"Graph data written: {len(merged_graph['nodes'])} nodes, {len(edges)} edges")
         except Exception as e:
             logger.error(f"Error writing graph_data.json: {e}")
 

@@ -43,26 +43,39 @@ class DataIngestionService:
             # BGE-M3 provides highly accurate 1024-dimensional embeddings
             self.embedder = SentenceTransformer("BAAI/bge-m3")
 
-    def _load_seen_urls(self) -> set:
+    def _load_seen_urls(self) -> dict:
+        """Load seen URLs as {hash: ISO timestamp} dict."""
         try:
             with open(SEEN_URLS_PATH, "r") as f:
                 data = json.load(f)
                 if isinstance(data, dict):
-                    return set(data.keys())
-                return set(data)
+                    # Check if it's legacy {hash: True} format
+                    for v in list(data.values())[:1]:
+                        if v is True:
+                            # Migrate: assign current time to all legacy entries
+                            now = datetime.now(timezone.utc).isoformat()
+                            return {k: now for k in data.keys()}
+                    return data
+                elif isinstance(data, list):
+                    now = datetime.now(timezone.utc).isoformat()
+                    return {k: now for k in data}
+                return {}
         except Exception:
-            return set()
+            return {}
 
-    async def _save_seen_urls(self, seen: set):
-        data = {url: True for url in seen}
+    async def _save_seen_urls(self, seen: dict):
+        """Save seen URLs with timestamps for TTL pruning."""
+        # Prune entries older than 30 days
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+        pruned = {url: ts for url, ts in seen.items() if ts >= cutoff}
         async with aiofiles.open(SEEN_URLS_PATH, "w") as f:
-            await f.write(json.dumps(data, indent=2))
+            await f.write(json.dumps(pruned, indent=2))
 
     async def _fetch_one_feed(self, session: aiohttp.ClientSession, feed_config: dict) -> list[dict]:
         """Fetch and parse a single RSS feed."""
         url = feed_config["url"]
         try:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
                 if resp.status != 200:
                     logger.warning(f"Feed {url} returned status {resp.status}")
                     return []
@@ -90,7 +103,7 @@ class DataIngestionService:
                     description = entry.get("summary", entry.get("description", ""))
                     if description:
                         soup = BeautifulSoup(description, "html.parser")
-                        description = soup.get_text(strip=True)[:500]
+                        description = soup.get_text(strip=True)[:2000]  # BGE-M3 supports 8192 tokens
 
                     articles.append({
                         "title": entry.get("title", ""),
@@ -142,7 +155,7 @@ class DataIngestionService:
             if url_hash in seen_urls:
                 result["skipped"] += 1
                 continue
-            seen_urls.add(url_hash)
+            seen_urls[url_hash] = datetime.now(timezone.utc).isoformat()
             article["id"] = url_hash[:12]
             new_articles.append(article)
 

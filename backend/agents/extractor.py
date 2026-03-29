@@ -9,6 +9,7 @@ Extraction results are persisted to disk to avoid re-processing on restart.
 import asyncio
 import json
 import logging
+import random
 import os
 import re
 from pathlib import Path
@@ -54,8 +55,9 @@ MODEL_CHAIN = [
 class ExtractorAgent:
 
     def __init__(self):
-        self.client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
-        self.semaphore = asyncio.Semaphore(2)  # Reduced from 5 to avoid rate bursts
+        from utils.groq_pool import get_groq_client
+        self.client = get_groq_client()
+        self.semaphore = asyncio.Semaphore(2)  # Limits to 2 concurrent Groq calls
         self.extraction_cache = self._load_cache()
         self.current_model_idx = 0  # Start with compound-mini
 
@@ -115,9 +117,13 @@ class ExtractorAgent:
             except Exception as e:
                 error_str = str(e).lower()
                 if "429" in error_str or "rate_limit" in error_str or "rate limit" in error_str:
-                    logger.warning(f"Rate limited on {model}, trying next model...")
+                    # Rotate to backup Groq API key before backoff
+                    from utils.groq_pool import rotate_groq_key
+                    self.client = rotate_groq_key()
+                    delay = min(2 ** model_idx, 4) + random.uniform(0, 0.5)
+                    logger.warning(f"Rate limited on {model}, rotated key, retrying in {delay:.1f}s...")
                     last_error = e
-                    await asyncio.sleep(2)  # Brief pause before trying next model
+                    await asyncio.sleep(delay)
                     continue
                 else:
                     raise e
@@ -175,8 +181,68 @@ class ExtractorAgent:
                     candidate = text[start:i + 1]
                     return json.loads(candidate)
 
-        raise json.JSONDecodeError("Incomplete JSON object", text, 0)
-        return {}  # Pyre2 path suppression
+        # Return partial fallback dict instead of raising (preserves pipeline continuity)
+        return {}
+
+    # ── Company → NSE ticker mapping (Nifty50 + key mid-caps) ────
+    COMPANY_TICKER_MAP = {
+        # Banking
+        "hdfc bank": "HDFCBANK", "icici bank": "ICICIBANK", "state bank": "SBIN",
+        "sbi": "SBIN", "kotak": "KOTAKBANK", "axis bank": "AXISBANK",
+        "indusind": "INDUSINDBK", "bank of baroda": "BANKBARODA", "pnb": "PNB",
+        "punjab national": "PNB", "canara bank": "CANBK", "idfc first": "IDFCFIRSTB",
+        # IT
+        "tata consultancy": "TCS", "tcs": "TCS", "infosys": "INFY",
+        "wipro": "WIPRO", "hcl tech": "HCLTECH", "tech mahindra": "TECHM",
+        "lt mindtree": "LTIM", "mphasis": "MPHASIS", "coforge": "COFORGE",
+        # Energy
+        "reliance": "RELIANCE", "ongc": "ONGC", "bpcl": "BPCL", "hpcl": "HPCL",
+        "indian oil": "IOC", "gail": "GAIL", "power grid": "POWERGRID",
+        "ntpc": "NTPC", "adani green": "ADANIGREEN", "adani power": "ADANIPOWER",
+        # Auto
+        "maruti": "MARUTI", "tata motors": "TATAMOTORS", "mahindra": "M&M",
+        "m&m": "M&M", "bajaj auto": "BAJAJ-AUTO", "hero moto": "HEROMOTOCO",
+        "eicher": "EICHERMOT", "ashok leyland": "ASHOKLEY", "tvs motor": "TVSMOTOR",
+        # Metals
+        "tata steel": "TATASTEEL", "hindalco": "HINDALCO", "jsw steel": "JSWSTEEL",
+        "vedanta": "VEDL", "coal india": "COALINDIA", "nmdc": "NMDC", "sail": "SAIL",
+        # Pharma
+        "sun pharma": "SUNPHARMA", "dr reddy": "DRREDDY", "cipla": "CIPLA",
+        "divi's": "DIVISLAB", "divis": "DIVISLAB", "apollo hosp": "APOLLOHOSP",
+        "lupin": "LUPIN", "aurobindo": "AUROPHARMA", "biocon": "BIOCON",
+        # FMCG
+        "hindustan unilever": "HINDUNILVR", "hul": "HINDUNILVR", "itc": "ITC",
+        "nestle": "NESTLEIND", "britannia": "BRITANNIA", "dabur": "DABUR",
+        "marico": "MARICO", "godrej consumer": "GODREJCP", "colgate": "COLPAL",
+        # Infra / Conglomerate
+        "larsen": "LT", "l&t": "LT", "adani enterprise": "ADANIENT",
+        "adani ports": "ADANIPORTS", "ultratech": "ULTRACEMCO", "grasim": "GRASIM",
+        "dlf": "DLF", "acc": "ACC", "ambuja": "AMBUJACEM",
+        # NBFC / Financial
+        "bajaj finance": "BAJFINANCE", "bajaj finserv": "BAJAJFINSV",
+        "sbi life": "SBILIFE", "hdfc life": "HDFCLIFE", "muthoot": "MUTHOOTFIN",
+        "cholamandalam": "CHOLAFIN", "shriram": "SHRIRAMFIN",
+        # Telecom
+        "bharti airtel": "BHARTIARTL", "airtel": "BHARTIARTL",
+        "vodafone idea": "IDEA", "jio": "RELIANCE",
+        # Others
+        "asian paints": "ASIANPAINT", "titan": "TITAN", "pidilite": "PIDILITIND",
+        "havells": "HAVELLS", "siemens": "SIEMENS", "abb": "ABB",
+        "zomato": "ZOMATO", "paytm": "PAYTM", "policybazaar": "POLICYBZR",
+        "nykaa": "NYKAA", "delhivery": "DELHIVERY",
+        "flipkart": "FLIPKART", "swiggy": "SWIGGY",
+    }
+
+    def _map_company_to_tickers(self, company_names: list, title: str = "") -> list[str]:
+        """Map extracted company names to NSE ticker symbols."""
+        tickers = set()
+        search_text = " ".join(company_names).lower() + " " + title.lower()
+        
+        for name_pattern, ticker in self.COMPANY_TICKER_MAP.items():
+            if name_pattern in search_text:
+                tickers.add(ticker)
+        
+        return list(tickers)[:5]  # Cap at 5 tickers per signal
 
     async def _extract_one(self, article: Dict[str, Any]) -> Dict[str, Any]:
         """Extract entities from a single article."""
@@ -199,6 +265,13 @@ class ExtractorAgent:
                 extraction["article_id"] = article.get("id", "")
                 extraction["source_channel"] = article.get("source_channel", "")
                 extraction["published_at"] = article.get("published_at", "")
+
+                # Auto-map company names to NSE tickers if LLM didn't provide them
+                if not extraction.get("nse_tickers"):
+                    extraction["nse_tickers"] = self._map_company_to_tickers(
+                        extraction.get("company_names", []),
+                        article.get("title", ""),
+                    )
 
                 if cache_key:
                     self.extraction_cache[cache_key] = extraction
@@ -264,7 +337,12 @@ class ExtractorAgent:
         # Cap uncached to 50 most recent to stay within rate limits
         if len(uncached_articles) > 50:
             logger.info(f"Capping extraction from {len(uncached_articles)} to 50 most recent articles")
-            uncached_articles = uncached_articles[-50:]
+            # Sort by published_at descending to ensure newest articles are processed first
+            uncached_articles.sort(
+                key=lambda a: a.get("published_at", ""),
+                reverse=True
+            )
+            uncached_articles = uncached_articles[:50]
 
         logger.info(f"Extraction batch: {len(cached_results)} cached, {len(uncached_articles)} need LLM processing")
 

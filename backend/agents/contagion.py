@@ -7,6 +7,7 @@ Classifies whether a signal is isolated, spreading, or systemic.
 import asyncio
 import json
 import os
+import random
 import logging
 from groq import AsyncGroq
 from dotenv import load_dotenv
@@ -14,36 +15,58 @@ from dotenv import load_dotenv
 load_dotenv()
 logger = logging.getLogger(__name__)
 
-# Hardcoded supply chain relationships
-SUPPLY_CHAIN = {
-    "Vedanta": ["Hindustan Zinc"],
-    "Hindalco": ["Novelis"],
-    "Tata Sons": ["TCS", "Jaguar"],
-    "Reliance": ["HPCL", "BPCL"],
-    "SBI": ["SBI Life", "SBI Cards"],
-    "Adani Enterprises": ["Adani Ports", "Adani Green", "Adani Power", "Adani Total Gas"],
-    "HDFC Bank": ["HDFC Life", "HDFC AMC"],
-    "ICICI Bank": ["ICICI Prudential", "ICICI Lombard"],
-    "Bajaj Finance": ["Bajaj Finserv"],
-    "Tata Motors": ["Tata Power", "Tata Steel"],
+# Known company-name → NSE ticker mapping for reliable peer checks
+_COMPANY_TICKER_MAP = {
+    "tata consultancy services": "TCS", "tcs": "TCS",
+    "infosys": "INFY", "wipro": "WIPRO", "hcl technologies": "HCLTECH",
+    "reliance industries": "RELIANCE", "reliance": "RELIANCE",
+    "hdfc bank": "HDFCBANK", "icici bank": "ICICIBANK", "sbi": "SBIN",
+    "state bank of india": "SBIN", "kotak mahindra bank": "KOTAKBANK",
+    "axis bank": "AXISBANK", "tata steel": "TATASTEEL",
+    "hindalco": "HINDALCO", "vedanta": "VEDL", "jsw steel": "JSWSTEEL",
+    "sun pharma": "SUNPHARMA", "cipla": "CIPLA", "dr reddy": "DRREDDY",
+    "maruti suzuki": "MARUTI", "tata motors": "TATAMOTORS",
+    "mahindra": "M&M", "bajaj auto": "BAJAJ-AUTO",
+    "hindustan unilever": "HINDUNILVR", "itc": "ITC",
+    "larsen & toubro": "LT", "adani enterprises": "ADANIENT",
+    "bharti airtel": "BHARTIARTL", "ntpc": "NTPC", "ongc": "ONGC",
+    "bpcl": "BPCL", "hpcl": "HPCL", "gail": "GAIL",
+    "power grid": "POWERGRID", "coal india": "COALINDIA",
+    "bajaj finance": "BAJFINANCE", "sbi life": "SBILIFE",
+    "tech mahindra": "TECHM", "ultratech cement": "ULTRACEMCO",
+    "apollo hospitals": "APOLLOHOSP", "titan": "TITAN",
 }
-
 
 class ContagionAgent:
 
     def __init__(self, chroma_store=None):
-        self.client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+        from utils.groq_pool import get_groq_client
+        self.client = get_groq_client()
         self.chroma_store = chroma_store
 
-    def _get_supply_chain(self, company: str) -> list[str]:
-        """Get supply chain related entities."""
-        for key, values in SUPPLY_CHAIN.items():
-            if company.lower() in key.lower() or key.lower() in company.lower():
-                return values
-        return []
+    def _get_dynamic_peers(self, company: str, sector: str, cached_articles: dict = None) -> list[str]:
+        """Dynamically find related companies in the same sector from recent news.
+        Uses cached_articles to avoid repeated DB calls."""
+        peers = set()
+        stored = cached_articles
+        if stored is None and self.chroma_store:
+            stored = self.chroma_store.get_recent_articles(days=7)
+        if stored and stored.get("metadatas"):
+            for m in stored["metadatas"]:
+                if m.get("sector") == sector:
+                    try:
+                        comps = json.loads(m.get("company_names", "[]"))
+                        if isinstance(comps, list):
+                            for c in comps:
+                                if c.lower() != company.lower():
+                                    peers.add(c)
+                    except Exception:
+                        pass
+        return list(peers)[:10]
 
-    async def _check_peer(self, peer: str, peer_ticker: str) -> dict:
-        """Check a single peer for negative signals."""
+    async def _check_peer(self, peer: str, peer_ticker: str, cached_articles: dict = None) -> dict:
+        """Check a single peer for negative signals.
+        Uses cached_articles to avoid repeated DB calls (fixes O(n²) issue)."""
         from tools.nse_tools import fetch_price_volume
         result = {"peer": peer, "ticker": peer_ticker, "has_negative_signal": False, "details": ""}
 
@@ -59,17 +82,16 @@ class ContagionAgent:
                     result["has_negative_signal"] = True
                     result["details"] += f"Price down {pd['price_change_7d_pct']}% in 7d. "
 
-            # Check ChromaDB for recent articles mentioning peer
-            if self.chroma_store:
-                stored = self.chroma_store.get_recent_articles(days=7)
-                if stored and stored.get("ids"):
-                    for i, doc in enumerate(stored.get("documents", [])):
-                        if doc and peer.lower() in doc.lower():
-                            meta = stored["metadatas"][i] if stored.get("metadatas") else {}
-                            if float(meta.get("sentiment", 0)) < -0.3:
-                                result["has_negative_signal"] = True
-                                result["details"] += f"Negative article found: {meta.get('title', '')[:50]}. "
-                            break
+            # Check cached ChromaDB articles for peer mentions (no extra DB call)
+            stored = cached_articles
+            if stored and stored.get("ids"):
+                for i, doc in enumerate(stored.get("documents", [])):
+                    if doc and peer.lower() in doc.lower():
+                        meta = stored["metadatas"][i] if stored.get("metadatas") else {}
+                        if float(meta.get("sentiment", 0)) < -0.3:
+                            result["has_negative_signal"] = True
+                            result["details"] += f"Negative article found: {meta.get('title', '')[:50]}. "
+                        break
 
         except Exception as e:
             logger.error(f"Peer check error for {peer}: {e}")
@@ -84,12 +106,31 @@ class ContagionAgent:
         sector = signal.get("sector", "Other")
         ticker = signal.get("nse_tickers", [""])[0] if signal.get("nse_tickers") else ""
 
-        # Get sector peers + supply chain entities
-        sector_peers = get_sector_peers(company, sector)
-        supply_chain = self._get_supply_chain(company)
-        all_entities = list(set(sector_peers + supply_chain))
+        # CRITICAL PERF FIX: Cache ChromaDB articles ONCE, pass to all sub-methods
+        cached_articles = None
+        if self.chroma_store:
+            cached_articles = self.chroma_store.get_recent_articles(days=7)
 
-        if not all_entities:
+        # Get sector peers (these ARE tickers from SECTOR_PEERS dict) 
+        sector_peers = get_sector_peers(company, sector)
+        # Dynamic peers may be company names, not tickers — keep them separate
+        dynamic_peers = self._get_dynamic_peers(company, sector, cached_articles)
+        
+        # sector_peers are already tickers — check them with proper ticker format
+        peer_tasks = []
+        for peer_ticker in sector_peers[:6]:
+            peer_tasks.append(self._check_peer(peer_ticker, peer_ticker, cached_articles))
+        
+        # For dynamic peers (company names), resolve to known tickers
+        for peer_name in dynamic_peers[:4]:
+            # Look up known ticker first, then fall back to guessing
+            resolved_ticker = _COMPANY_TICKER_MAP.get(peer_name.lower(), "")
+            if not resolved_ticker:
+                # Skip peers without known tickers — prevents wasted yfinance calls
+                continue
+            peer_tasks.append(self._check_peer(peer_name, resolved_ticker, cached_articles))
+
+        if not peer_tasks:
             return {
                 "contagion_type": "isolated",
                 "affected_peers": [],
@@ -97,9 +138,8 @@ class ContagionAgent:
                 "ripple_companies": [],
             }
 
-        # Check all peers in parallel
-        tasks = [self._check_peer(p, p) for p in all_entities[:10]]
-        peer_results = await asyncio.gather(*tasks, return_exceptions=True)
+        # Check all peers in parallel (tasks already built above)
+        peer_results = await asyncio.gather(*peer_tasks, return_exceptions=True)
 
         negative_peers = []
         for r in peer_results:
@@ -137,8 +177,10 @@ class ContagionAgent:
                     break
                 except Exception as me:
                     if "429" in str(me) or "rate_limit" in str(me).lower():
-                        logger.warning(f"Contagion: rate limited on {model_name}, trying next...")
-                        await asyncio.sleep(2)
+                        attempt = contagion_models.index(model_name)
+                        delay = (2 ** attempt) + random.uniform(0, 1)
+                        logger.warning(f"Contagion: rate limited on {model_name}, retrying in {delay:.1f}s...")
+                        await asyncio.sleep(delay)
                         continue
                     raise me
             if response is None:
@@ -155,5 +197,5 @@ class ContagionAgent:
             "contagion_type": contagion_type,
             "affected_peers": negative_peers,
             "contagion_note": contagion_note,
-            "ripple_companies": all_entities,
+            "ripple_companies": sector_peers + dynamic_peers,
         }

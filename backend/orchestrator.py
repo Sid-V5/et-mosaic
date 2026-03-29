@@ -115,25 +115,25 @@ class MosaicOrchestrator:
                 await asyncio.sleep(30)
 
                 if GEMINI_API_KEY:
+                    original_client = None
                     try:
-                        from groq import AsyncGroq  # type: ignore[import-untyped]
-                        import httpx  # type: ignore[import-untyped]
+                        # Use OpenAI-compatible client for Gemini (not the Groq client)
+                        from openai import AsyncOpenAI  # type: ignore[import-untyped]
                         original_client = getattr(agent_method.__self__, 'client', None)
-                        gemini_client = AsyncGroq(
+                        gemini_client = AsyncOpenAI(
                             api_key=GEMINI_API_KEY,
                             base_url=GEMINI_OPENAI_BASE,
-                            http_client=httpx.AsyncClient(),
                         )
                         agent_method.__self__.client = gemini_client
-                        try:
-                            result = await agent_method(*args)
-                            return cast(T, result)
-                        finally:
-                            if original_client:
-                                agent_method.__self__.client = original_client
+                        result = await agent_method(*args)
+                        return cast(T, result)
                     except Exception as gemini_e:
                         logger.error(f"[{step_name}] Gemini fallback failed: {gemini_e}")
                         raise
+                    finally:
+                        # ALWAYS restore original Groq client
+                        if original_client is not None:
+                            agent_method.__self__.client = original_client
                 else:
                     raise
             else:
@@ -160,7 +160,21 @@ class MosaicOrchestrator:
     async def run(self, portfolio: Optional[List[str]] = None) -> None:
         """Main pipeline execution."""
         import uuid
-        portfolio = portfolio or []
+        
+        # Default demo portfolio for judging — represents a typical Indian retail investor
+        if not portfolio:
+            # Try to load user's last portfolio from signals API query params cached on disk
+            try:
+                portfolio_path = os.path.join(DATA_DIR, "user_portfolio.json")
+                if os.path.exists(portfolio_path):
+                    with open(portfolio_path, "r") as f:
+                        portfolio = json.load(f)
+            except Exception:
+                pass
+        
+        # Fallback: default Nifty50 demo portfolio
+        if not portfolio:
+            portfolio = ["HDFCBANK", "RELIANCE", "TCS", "INFY", "ICICIBANK", "ITC", "BAJFINANCE", "BHARTIARTL", "SBIN", "LT"]
         self._state = {
             "run_id": uuid.uuid4().hex[:8],
             "started_at": datetime.now(timezone.utc).isoformat(),
@@ -270,10 +284,87 @@ class MosaicOrchestrator:
                 self._audit("4_contagion", "ContagionAgent", "error", duration, str(e))
                 logger.error(f"Contagion error: {e}")
 
-            # Step 5: Scoring
+            # Step 4b: Bulk Deal Intelligence — enrich signals with distress analysis
             t0 = time.time()
             try:
+                from tools.nse_tools import analyze_bulk_deal
+                enriched_deals = 0
+                for conn in connections:
+                    bulk_deals = conn.get("bulk_deals", [])
+                    if bulk_deals:
+                        price_data = conn.get("price_data", {})
+                        # Get market price from any ticker in the signal
+                        market_price = 0
+                        if isinstance(price_data, dict):
+                            for ticker_data in price_data.values():
+                                if isinstance(ticker_data, dict):
+                                    market_price = ticker_data.get("current_price", 0)
+                                    if market_price > 0:
+                                        break
+
+                        enriched = []
+                        for deal in bulk_deals:
+                            if isinstance(deal, dict) and market_price > 0:
+                                analyzed = await analyze_bulk_deal(deal, market_price)
+                                enriched.append(analyzed)
+                                enriched_deals += 1
+                            else:
+                                enriched.append(deal)
+                        conn["bulk_deals"] = enriched
+
+                duration = (time.time() - t0) * 1000
+                self._audit("4b_bulk_deals", "NSETools", "success", duration,
+                           f"enriched={enriched_deals} deals")
+            except Exception as e:
+                duration = (time.time() - t0) * 1000
+                self._audit("4b_bulk_deals", "NSETools", "error", duration, str(e))
+                logger.warning(f"Bulk deal enrichment error (non-fatal): {e}")
+
+            # Step 4c: FII/DII Activity — fetch institutional flow data
+            t0 = time.time()
+            fii_dii_data = {}
+            try:
+                from tools.nse_tools import fetch_fii_dii_activity
+                fii_dii_data = await fetch_fii_dii_activity()
+                duration = (time.time() - t0) * 1000
+                summary = fii_dii_data.get("summary", {})
+                self._audit("4c_fii_dii", "NSETools", "success", duration,
+                           f"FII: {summary.get('fii_sentiment', 'N/A')}, DII: {summary.get('dii_sentiment', 'N/A')}")
+                # Inject FII/DII context into all signals
+                for conn in connections:
+                    tech = conn.get("technical", {})
+                    if isinstance(tech, dict):
+                        tech["fii_dii"] = summary
+                        conn["technical"] = tech
+            except Exception as e:
+                duration = (time.time() - t0) * 1000
+                self._audit("4c_fii_dii", "NSETools", "error", duration, str(e))
+                logger.warning(f"FII/DII fetch error (non-fatal): {e}")
+
+            # Step 5: Scoring + Portfolio Impact
+            t0 = time.time()
+            try:
+                # ── Pre-scoring: enrich empty tickers from company names ──
+                for conn in connections:
+                    if not conn.get("nse_tickers"):
+                        companies = conn.get("company_names", [])
+                        headline = conn.get("headline", "") or conn.get("explanation", "")
+                        mapped = self.extractor._map_company_to_tickers(companies, headline)
+                        if mapped:
+                            conn["nse_tickers"] = mapped
+
                 scored = self.scoring.score_signals(connections, portfolio)
+
+                # Compute portfolio P&L impact for each signal (Scenario 3)
+                if portfolio:
+                    for signal in scored:
+                        try:
+                            impact = self.scoring.estimate_portfolio_impact(signal, portfolio)
+                            signal["portfolio_impact"] = impact
+                        except Exception as pe:
+                            logger.warning(f"Portfolio impact calc error: {pe}")
+                            signal["portfolio_impact"] = {}
+
                 duration = (time.time() - t0) * 1000
                 self._audit("5_scoring", "ScoringEngine", "success", duration,
                            f"scored={len(scored)}")
@@ -302,11 +393,17 @@ class MosaicOrchestrator:
                 self._audit("6_narration", "NarratorAgent", "error", duration, str(e))
                 logger.error(f"Narration error: {e}")
 
-            # Step 7: Accuracy tracking (fire-and-forget)
+            # Step 7: Accuracy tracking & outcome verification
             try:
-                asyncio.create_task(self.accuracy.run())
-            except Exception:
-                pass
+                # Verify any pending T+3 predictions
+                await self.accuracy.run()
+                
+                # Schedule outcome checks for new signals
+                if scored:
+                    for signal in scored[:10]:
+                        await self.accuracy.schedule_outcome_check(signal)
+            except Exception as e:
+                logger.warning(f"Accuracy tracking error (non-fatal): {e}")
 
             self._state["status"] = "complete" if not self._state["errors"] else "partial"
 
