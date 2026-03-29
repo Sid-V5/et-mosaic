@@ -61,10 +61,7 @@ export default function SignalDetail({ selectedSignal, username = '' }) {
 
   // Determine if this signal has meaningful market data to display
   const hasTechnical = Boolean(technical.rsi || technical.rsi_signal || technical.breakout_52w);
-  const hasMarketData = Boolean(
-    bulkDeals.length > 0 || hasTechnical || technical.fii_dii ||
-    (s.contagion_type && s.contagion_type !== 'isolated')
-  );
+  const hasMarketData = Boolean(bulkDeals.length > 0 || hasTechnical);
 
   const sevColor = s.severity === 'high' ? '#E24B4A' : s.severity === 'medium' ? '#F0A500' : '#0EA5A0';
 
