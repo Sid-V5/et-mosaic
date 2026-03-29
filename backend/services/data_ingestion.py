@@ -1,5 +1,5 @@
 """
-Data Ingestion Service — RSS feed ingestion, dedup, embed, store in ChromaDB.
+Data Ingestion Service - RSS feed ingestion, dedup, embed, store in pgvector.
 Deterministic — no LLM.
 """
 
@@ -172,7 +172,7 @@ class DataIngestionService:
         )
         embeddings_list = [emb.tolist() for emb in embeddings]
 
-        # Store in ChromaDB
+        # Store in pgvector
         if self.chroma_store:
             self.chroma_store.add_articles(new_articles, embeddings_list)
 

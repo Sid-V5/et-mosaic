@@ -78,14 +78,14 @@ class MosaicOrchestrator:
         from agents.contagion import ContagionAgent
         from agents.narrator import NarratorAgent
 
-        self.chroma = PgVectorStore() # Assigned to self.chroma to preserve interface compatibility across agents
-        self.ingestion = DataIngestionService(chroma_store=self.chroma)
+        self.db = PgVectorStore()
+        self.ingestion = DataIngestionService(chroma_store=self.db)
         self.ta_service = TechnicalAnalysisService()
         self.scoring = ScoringEngine()
         self.accuracy = AccuracyTracker()
         self.extractor = ExtractorAgent()
-        self.mosaic_builder = MosaicBuilderAgent(chroma_store=self.chroma, ta_service=self.ta_service)
-        self.contagion = ContagionAgent(chroma_store=self.chroma)
+        self.mosaic_builder = MosaicBuilderAgent(chroma_store=self.db, ta_service=self.ta_service)
+        self.contagion = ContagionAgent(chroma_store=self.db)
         self.narrator = NarratorAgent()
 
     def _audit(self, step: str, agent_or_service: str, status: str, duration_ms: float, output_summary: str) -> None:
@@ -139,9 +139,9 @@ class MosaicOrchestrator:
             else:
                 raise
 
-    def _get_articles_from_chroma(self) -> List[Dict[str, Any]]:
-        """Get articles from ChromaDB and format for extraction."""
-        stored = self.chroma.get_recent_articles(days=7)
+    def _get_articles_from_db(self) -> List[Dict[str, Any]]:
+        """Get articles from pgvector store and format for extraction."""
+        stored = self.db.get_recent_articles(days=7)
         articles = []
         if stored and stored.get("ids"):
             for i, aid in enumerate(stored["ids"]):
@@ -198,11 +198,10 @@ class MosaicOrchestrator:
                            f"new={new_count}, skipped={ingestion_result.get('skipped', 0)}")
 
                 if new_count == 0:
-                    # CRITICAL FIX: Don't return early. Log it, but continue
-                    # processing existing ChromaDB articles.
+                    # Continue processing existing stored articles.
                     self._audit("1_ingestion", "DataIngestionService", "info", duration,
-                               "No new articles — processing existing articles from ChromaDB")
-                    logger.info("No new articles. Will process existing ChromaDB articles.")
+                               "No new articles - processing existing stored articles")
+                    logger.info("No new articles. Processing existing stored articles.")
             except Exception as e:
                 duration = (time.time() - t0) * 1000
                 self._state["errors"].append(f"Ingestion: {str(e)}")
@@ -213,13 +212,13 @@ class MosaicOrchestrator:
             t0 = time.time()
             extractions = []
             try:
-                articles_for_extraction = self._get_articles_from_chroma()
+                articles_for_extraction = self._get_articles_from_db()
 
                 if not articles_for_extraction:
                     duration = (time.time() - t0) * 1000
                     self._audit("2_extraction", "ExtractorAgent", "skipped", duration,
-                               "No articles in ChromaDB")
-                    logger.warning("No articles in ChromaDB to extract from")
+                               "No articles in store")
+                    logger.warning("No articles in store to extract from")
                 else:
                     extractions = await self._retry_with_gemini(
                         self.extractor.extract_batch, articles_for_extraction, step_name="2_extraction"

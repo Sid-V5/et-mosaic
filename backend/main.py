@@ -463,8 +463,8 @@ async def health():
     db_ok = False
     try:
         global orchestrator
-        if orchestrator and hasattr(orchestrator, 'chroma'):
-            count = orchestrator.chroma.count()
+        if orchestrator and hasattr(orchestrator, 'db'):
+            count = orchestrator.db.count()
             db_ok = True
     except Exception:
         pass

@@ -119,7 +119,7 @@ class PgVectorStore:
                     ArticleModel.embedding.cosine_distance(embedding).label('distance')
                 )
                 
-                # Handle basic chroma 'where' equality filters using JSONB
+                # Handle basic 'where' equality filters using JSONB
                 # Parameterized queries to prevent SQL injection
                 if where:
                     for k, v in where.items():

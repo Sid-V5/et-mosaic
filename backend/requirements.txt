@@ -5,7 +5,6 @@ feedparser
 beautifulsoup4
 html2text
 python-dateutil
-chromadb
 sentence-transformers
 yfinance
 fuzzywuzzy

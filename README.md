@@ -86,9 +86,11 @@ graph TD
 | RSS feed down | Continue processing cached articles from pgvector |
 | Agent throws exception | Pipeline continues with partial data, error logged to audit trail |
 | Database unreachable | Health endpoint reports degraded, signals served from JSON cache |
-| No new articles | Process existing ChromaDB articles instead of stopping |
+| No new articles | Process existing pgvector articles instead of stopping |
 
 ## Cost Model
+
+### Prototype (Hackathon)
 
 | Component | Cost |
 |-----------|------|
@@ -99,6 +101,18 @@ graph TD
 | TTS (Orpheus) | $0 - Groq free tier |
 | Database (pgvector) | $0 - local Docker |
 | **Total** | **$0/month** |
+
+### Production Scale
+
+| Component | Estimated Cost |
+|-----------|------|
+| LLM (Gemini 2.5 Pro / Claude 3.5) | ~$200-500/month (usage-based) |
+| Database (managed PostgreSQL) | ~$50-100/month |
+| Compute (cloud VM) | ~$100-200/month |
+| TTS (cloud API) | ~$20-50/month |
+| **Total** | **~$400-850/month** |
+
+Commercial viability: At 10,000 subscribers paying Rs 99/month, revenue is Rs 9.9L/month vs ~Rs 7L/month operating cost.
 
 ## Impact Model
 

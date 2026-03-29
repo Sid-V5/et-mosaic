@@ -82,7 +82,7 @@ class ContagionAgent:
                     result["has_negative_signal"] = True
                     result["details"] += f"Price down {pd['price_change_7d_pct']}% in 7d. "
 
-            # Check cached ChromaDB articles for peer mentions (no extra DB call)
+            # Check cached articles for peer mentions
             stored = cached_articles
             if stored and stored.get("ids"):
                 for i, doc in enumerate(stored.get("documents", [])):
@@ -106,7 +106,7 @@ class ContagionAgent:
         sector = signal.get("sector", "Other")
         ticker = signal.get("nse_tickers", [""])[0] if signal.get("nse_tickers") else ""
 
-        # CRITICAL PERF FIX: Cache ChromaDB articles ONCE, pass to all sub-methods
+        # Cache stored articles once, pass to all sub-methods
         cached_articles = None
         if self.chroma_store:
             cached_articles = self.chroma_store.get_recent_articles(days=7)

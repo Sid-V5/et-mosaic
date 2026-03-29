@@ -67,11 +67,11 @@ const TIMELINE_EVENTS = [
 ];
 
 const STEPS = [
-  { n: '01', title: 'Ingest', desc: '500+ ET articles ingested from 6 channels every 15 minutes.' },
-  { n: '02', title: 'Extract', desc: 'LLaMA 3.1 8B extracts entities, events, and sentiment from each article.' },
-  { n: '03', title: 'Connect', desc: 'Mosaic Builder finds cross-source connections across 4 evidence layers.' },
-  { n: '04', title: 'Verify', desc: 'Every signal verified against live NSE bulk deals, insider trades, and technical indicators.' },
-  { n: '05', title: 'Alert', desc: 'Plain-English signal cards with Hindi audio brief. Ranked by your portfolio.' },
+  { n: '01', title: 'Ingest', desc: 'ET + Reuters + Yahoo articles ingested from 8 feeds every 15 minutes.' },
+  { n: '02', title: 'Extract', desc: 'LLaMA 3.3 70B via Groq extracts entities, tickers, sentiment, and sector.' },
+  { n: '03', title: 'Connect', desc: 'Mosaic Builder cross-references via pgvector cosine similarity.' },
+  { n: '04', title: 'Verify', desc: 'Signals verified against NSE bulk deals, FII/DII flows, RSI, MACD.' },
+  { n: '05', title: 'Alert', desc: 'Signal cards with citations, portfolio impact, and audio briefs.' },
 ];
 
 export default function Landing() {
@@ -235,27 +235,18 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* What it is / is not */}
+      {/* What it is */}
       <section className="what-section" ref={whatRef} data-fade>
         <div className="section-inner">
           <div className="what-grid">
             <div className="what-col">
-              <h3 className="what-heading">What ET Mosaic is.</h3>
+              <h3 className="what-heading">What ET Mosaic does.</h3>
               <ul className="what-list check">
-                <li><span className="check-mark">✓</span>Cross-source signal detection</li>
-                <li><span className="check-mark">✓</span>Technical pattern confirmation (RSI, MACD, Bollinger)</li>
-                <li><span className="check-mark">✓</span>Portfolio-aware ranking</li>
-                <li><span className="check-mark">✓</span>Sector contagion detection</li>
-                <li><span className="check-mark">✓</span>Hindi audio briefs for Tier 2/3 India</li>
-              </ul>
-            </div>
-            <div className="what-col">
-              <h3 className="what-heading">What it is not.</h3>
-              <ul className="what-list cross">
-                <li><span className="cross-mark">✗</span>Stock price prediction</li>
-                <li><span className="cross-mark">✗</span>Financial advice or trade recommendations</li>
-                <li><span className="cross-mark">✗</span>Insider information (100% public data only)</li>
-                <li><span className="cross-mark">✗</span>A news summariser</li>
+                <li><span className="check-mark">✓</span>Cross-source signal detection across 8 feeds</li>
+                <li><span className="check-mark">✓</span>Technical confirmation (RSI, MACD, 52W breakout)</li>
+                <li><span className="check-mark">✓</span>Portfolio-aware P&L impact estimates</li>
+                <li><span className="check-mark">✓</span>Sector contagion propagation tracking</li>
+                <li><span className="check-mark">✓</span>7-step autonomous analysis chain</li>
               </ul>
             </div>
           </div>
@@ -311,11 +302,6 @@ export default function Landing() {
               <div className="stat-label">BLOOMBERG COSTS PER SEAT/YEAR</div>
               <div className="stat-source">Godel Terminal, Jan 2025</div>
             </div>
-            <div className="stat-item">
-              <div className="stat-number stat-free">₹0</div>
-              <div className="stat-label">ET MOSAIC OPERATING COST</div>
-              <div className="stat-source">Verified</div>
-            </div>
           </div>
         </div>
       </section>
@@ -328,19 +314,19 @@ export default function Landing() {
             See what the market<br />is hiding from you.
           </h2>
           <p className="cta-sub">
-            Enter your NSE tickers. ET Mosaic handles the rest.
+            Add your portfolio tickers. ET Mosaic monitors them 24/7.
           </p>
           <button className="btn-primary btn-large" onClick={() => navigate('/dashboard')}>
             Open ET Mosaic →
           </button>
-          <div className="cta-note">Free. No account required. ₹0 operating cost.</div>
+          <div className="cta-note">Free prototype. No account required.</div>
         </div>
       </section>
 
       {/* Footer */}
       <footer className="landing-footer">
         <span className="footer-logo">ET MOSAIC</span>
-        <span className="footer-note">Built for ET GenAI Hackathon 2026. Track PS6 - AI for the Indian Investor.</span>
+        <span className="footer-note">ET GenAI Hackathon 2026 | Track 6: AI for the Indian Investor</span>
       </footer>
     </div>
   );
