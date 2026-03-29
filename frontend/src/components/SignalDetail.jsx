@@ -59,11 +59,11 @@ export default function SignalDetail({ selectedSignal, username = '' }) {
   const sentimentVelocity = s.sentiment_velocity || 0;
   const marketConfirmation = s.market_data_confirmation || 0;
 
-  // Determine if this signal has NSE data (Indian equity vs global macro)
-  const hasNSEData = Boolean(
-    (s.nse_tickers && s.nse_tickers.length > 0) ||
-    technical.rsi || technical.rsi_signal || bulkDeals.length > 0 ||
-    priceData.current_price
+  // Determine if this signal has meaningful market data to display
+  const hasTechnical = Boolean(technical.rsi || technical.rsi_signal || technical.breakout_52w);
+  const hasMarketData = Boolean(
+    bulkDeals.length > 0 || hasTechnical || technical.fii_dii ||
+    (s.contagion_type && s.contagion_type !== 'isolated')
   );
 
   const sevColor = s.severity === 'high' ? '#E24B4A' : s.severity === 'medium' ? '#F0A500' : '#0EA5A0';
@@ -251,8 +251,8 @@ export default function SignalDetail({ selectedSignal, username = '' }) {
         </>
       )}
 
-      {/* 03 Market Data + Technical (only for NSE equities) */}
-      {hasNSEData && (
+      {/* 03 Market Data + Technical (only when meaningful data exists) */}
+      {hasMarketData && (
         <>
           {nextSection('MARKET VERIFICATION')}
           <div style={{
