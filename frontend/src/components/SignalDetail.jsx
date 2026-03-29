@@ -59,19 +59,31 @@ export default function SignalDetail({ selectedSignal, username = '' }) {
   const sentimentVelocity = s.sentiment_velocity || 0;
   const marketConfirmation = s.market_data_confirmation || 0;
 
+  // Determine if this signal has NSE data (Indian equity vs global macro)
+  const hasNSEData = Boolean(
+    (s.nse_tickers && s.nse_tickers.length > 0) ||
+    technical.rsi || technical.rsi_signal || bulkDeals.length > 0 ||
+    priceData.current_price
+  );
+
   const sevColor = s.severity === 'high' ? '#E24B4A' : s.severity === 'medium' ? '#F0A500' : '#0EA5A0';
 
-  const sectionLabel = (num, text) => (
-    <div style={{
-      fontFamily: "'IBM Plex Mono', monospace", fontSize: '13px',
-      color: '#F0A500', letterSpacing: '0.1em',
-      textTransform: 'uppercase', marginTop: num > 1 ? '16px' : '0',
-      marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px',
-    }}>
-      <span style={{ fontWeight: '600' }}>0{num}</span>
-      <span style={{ color: 'rgba(240,238,232,0.55)' }}>{text}</span>
-    </div>
-  );
+  // Dynamic section numbering
+  let sectionCounter = 0;
+  const nextSection = (text) => {
+    sectionCounter++;
+    return (
+      <div style={{
+        fontFamily: "'IBM Plex Mono', monospace", fontSize: '13px',
+        color: '#F0A500', letterSpacing: '0.1em',
+        textTransform: 'uppercase', marginTop: sectionCounter > 1 ? '16px' : '0',
+        marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px',
+      }}>
+        <span style={{ fontWeight: '600' }}>0{sectionCounter}</span>
+        <span style={{ color: 'rgba(240,238,232,0.55)' }}>{text}</span>
+      </div>
+    );
+  };
 
   const dataRow = (label, value, color = 'rgba(240,238,232,0.8)') => (
     <div style={{
@@ -133,198 +145,10 @@ export default function SignalDetail({ selectedSignal, username = '' }) {
         }}>{s.confidence}%</span>
       </div>
 
-      {/* 01 Cross-source */}
-      {sectionLabel(1, 'CROSS-SOURCE ANALYSIS')}
-      <div style={{
-        padding: '8px 10px', background: 'rgba(255,255,255,0.02)',
-        border: '1px solid rgba(255,255,255,0.05)', marginBottom: '4px',
-      }}>
-        {dataRow('Embedding Similarity', similarity > 0 ? `${(similarity * 100).toFixed(0)}%` : 'N/A',
-          similarity > 0.6 ? '#E24B4A' : similarity > 0.4 ? '#F0A500' : 'rgba(240,238,232,0.7)')}
-        {dataRow('Sentiment Delta', sentimentVelocity > 0 ? sentimentVelocity.toFixed(3) : 'N/A',
-          sentimentVelocity > 0.3 ? '#E24B4A' : 'rgba(240,238,232,0.7)')}
-        {dataRow('Market Confirmation', marketConfirmation > 0 ? `${(marketConfirmation * 100).toFixed(0)}%` : 'Pending',
-          marketConfirmation >= 0.5 ? '#3CB371' : 'rgba(240,238,232,0.35)')}
-        {dataRow('Source Articles', `${(s.sources || []).length}`, 'rgba(240,238,232,0.7)')}
-      </div>
-      {(s.sources || []).map((src, i) => (
-        <div key={i} style={{
-          fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px',
-          color: 'rgba(240,238,232,0.5)', padding: '4px 10px',
-          borderLeft: '2px solid rgba(79,134,198,0.3)', marginBottom: '3px',
-        }}>
-          <a href={src.url} target="_blank" rel="noreferrer" style={{
-            color: 'rgba(79,134,198,0.9)', textDecoration: 'none',
-          }}>
-            {src.title?.slice(0, 60)} <span style={{ color: 'rgba(240,238,232,0.25)' }}>/ {src.source}</span>
-          </a>
-        </div>
-      ))}
-
-      {/* 02 Market Data */}
-      {sectionLabel(2, 'MARKET DATA')}
-      <div style={{
-        padding: '8px 10px', background: 'rgba(255,255,255,0.02)',
-        border: '1px solid rgba(255,255,255,0.05)',
-      }}>
-        {bulkDeals.length > 0 ? (
-          bulkDeals.slice(0, 3).map((deal, i) => (
-            <div key={i} style={{
-              padding: '5px 0',
-              borderBottom: i < Math.min(bulkDeals.length, 3) - 1 ? '1px solid rgba(255,255,255,0.03)' : 'none',
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{
-                  fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px',
-                  color: 'rgba(240,238,232,0.7)',
-                }}>{deal.client || deal.stock}</span>
-                {deal.distress_assessment && (
-                  <span style={{
-                    fontFamily: "'IBM Plex Mono', monospace", fontSize: '9px',
-                    fontWeight: '600', padding: '1px 6px', letterSpacing: '0.04em',
-                    background: deal.distress_assessment === 'LIKELY_DISTRESS' ? 'rgba(226,75,74,0.15)' :
-                      deal.distress_assessment === 'ELEVATED_CONCERN' ? 'rgba(240,165,0,0.12)' : 'rgba(60,179,113,0.1)',
-                    color: deal.distress_assessment === 'LIKELY_DISTRESS' ? '#E24B4A' :
-                      deal.distress_assessment === 'ELEVATED_CONCERN' ? '#F0A500' : '#3CB371',
-                  }}>{deal.distress_assessment?.replace(/_/g, ' ')}</span>
-                )}
-              </div>
-              <div style={{
-                fontFamily: "'IBM Plex Mono', monospace", fontSize: '10px',
-                color: 'rgba(240,238,232,0.45)', marginTop: '2px',
-              }}>
-                {deal.qty?.toLocaleString()} shares @ ₹{deal.price?.toLocaleString()} • {deal.side}
-                {deal.discount_pct > 0 && (
-                  <span style={{ color: '#E24B4A', fontWeight: '600' }}> • {deal.discount_pct}% discount</span>
-                )}
-                {deal.is_promoter && (
-                  <span style={{ color: '#F0A500' }}> • PROMOTER</span>
-                )}
-              </div>
-              {deal.recommended_action && (
-                <div style={{
-                  fontFamily: "'DM Sans', sans-serif", fontSize: '11px',
-                  color: 'rgba(240,238,232,0.4)', marginTop: '3px', fontStyle: 'italic',
-                }}>→ {deal.recommended_action}</div>
-              )}
-            </div>
-          ))
-        ) : (
-          <div style={{
-            fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px',
-            color: 'rgba(240,238,232,0.35)',
-          }}>{priceData.current_price ? `₹${priceData.current_price?.toFixed(2)}` : 'NSE data pending.'}</div>
-        )}
-        {priceData.volume_spike && dataRow('Volume Spike', '▲ Detected', '#E24B4A')}
-        {priceData.price_change_7d_pct != null && dataRow('7D Change', `${priceData.price_change_7d_pct?.toFixed(1)}%`,
-          priceData.price_change_7d_pct < -5 ? '#E24B4A' : 'rgba(240,238,232,0.7)')}
-      </div>
-
-      {/* 03 Technical */}
-      {sectionLabel(3, 'TECHNICAL')}
-      <div style={{
-        padding: '8px 10px', background: 'rgba(255,255,255,0.02)',
-        border: '1px solid rgba(255,255,255,0.05)',
-      }}>
-        {technical.rsi_signal || technical.rsi ? (
-          <>
-            {/* 52-Week Breakout — Scenario 2 highlight */}
-            {technical.breakout_52w && (
-              <div style={{
-                padding: '6px 8px', marginBottom: '6px',
-                background: technical.volume_confirmed ? 'rgba(60,179,113,0.08)' : 'rgba(240,165,0,0.06)',
-                border: `1px solid ${technical.volume_confirmed ? 'rgba(60,179,113,0.2)' : 'rgba(240,165,0,0.15)'}`,
-              }}>
-                <div style={{
-                  fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px',
-                  fontWeight: '700', color: technical.volume_confirmed ? '#3CB371' : '#F0A500',
-                  marginBottom: '3px',
-                }}>
-                  🚀 52-WEEK HIGH BREAKOUT {technical.volume_confirmed ? '(VOL CONFIRMED)' : '(UNCONFIRMED)'}
-                </div>
-                {dataRow('52W High', `₹${technical.high_52w?.toLocaleString()}`, '#3CB371')}
-                {dataRow('Volume Ratio', `${technical.volume_ratio}x avg`, technical.volume_ratio > 1.5 ? '#3CB371' : '#F0A500')}
-                {technical.pattern_success_rate?.sample_size > 0 && (
-                  <>
-                    {dataRow('T+5 Win Rate', `${technical.pattern_success_rate.t5_win_rate}%`,
-                      technical.pattern_success_rate.t5_win_rate > 60 ? '#3CB371' : '#F0A500')}
-                    {dataRow('T+20 Win Rate', `${technical.pattern_success_rate.t20_win_rate}%`,
-                      technical.pattern_success_rate.t20_win_rate > 55 ? '#3CB371' : '#F0A500')}
-                    <div style={{
-                      fontFamily: "'IBM Plex Mono', monospace", fontSize: '9px',
-                      color: 'rgba(240,238,232,0.3)', marginTop: '2px',
-                    }}>{technical.pattern_success_rate.note}</div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {dataRow('RSI (14)', `${Number(technical.rsi || technical.RSI_14).toFixed(1)} ${technical.rsi_signal || ''}`,
-              technical.rsi_signal === 'OVERBOUGHT' ? '#E24B4A' : technical.rsi_signal === 'OVERSOLD' ? '#3CB371' : 'rgba(240,238,232,0.7)')}
-            {technical.macd_class && dataRow('MACD', technical.macd_class?.replace(/_/g, ' '),
-              technical.macd_class === 'BEARISH_CROSS' ? '#E24B4A' : '#3CB371')}
-            {technical.dma_signal && dataRow('200-DMA', technical.dma_signal?.replace(/_/g, ' '),
-              technical.dma_signal === 'BELOW_200DMA' ? '#E24B4A' : '#3CB371')}
-            {technical.golden_cross && dataRow('Cross', '🟡 Golden Cross (50 > 200 DMA)', '#3CB371')}
-            {technical.death_cross && dataRow('Cross', '💀 Death Cross (50 < 200 DMA)', '#E24B4A')}
-            {technical.confirms_risk != null && dataRow('Risk Confirmed', technical.confirms_risk ? 'YES' : 'NO',
-              technical.confirms_risk ? '#E24B4A' : '#3CB371')}
-
-            {/* FII/DII Activity — Scenario 2 */}
-            {technical.fii_dii && (
-              <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
-                <div style={{
-                  fontFamily: "'IBM Plex Mono', monospace", fontSize: '9px',
-                  color: 'rgba(240,238,232,0.3)', letterSpacing: '0.06em', marginBottom: '3px',
-                }}>INSTITUTIONAL FLOW</div>
-                {technical.fii_dii.fii_sentiment && dataRow('FII/FPI',
-                  `${technical.fii_dii.fii_sentiment} (₹${Math.abs(technical.fii_dii.fii_net_cr || 0).toFixed(0)} Cr)`,
-                  technical.fii_dii.fii_sentiment === 'BUYING' ? '#3CB371' : '#E24B4A')}
-                {technical.fii_dii.dii_sentiment && dataRow('DII',
-                  `${technical.fii_dii.dii_sentiment} (₹${Math.abs(technical.fii_dii.dii_net_cr || 0).toFixed(0)} Cr)`,
-                  technical.fii_dii.dii_sentiment === 'BUYING' ? '#3CB371' : '#E24B4A')}
-              </div>
-            )}
-          </>
-        ) : (
-          <div style={{
-            fontFamily: "'IBM Plex Mono', monospace", fontSize: '12px',
-            color: 'rgba(240,238,232,0.35)',
-          }}>TA available for NSE equities only. Macro signals use cross-article sentiment.</div>
-        )}
-      </div>
-
-      {/* 04 Contagion */}
-      {sectionLabel(4, 'CONTAGION')}
-      <div style={{
-        padding: '8px 10px', background: 'rgba(255,255,255,0.02)',
-        border: '1px solid rgba(255,255,255,0.05)',
-      }}>
-        {dataRow('Type', s.contagion_type || 'isolated',
-          s.contagion_type === 'systemic' ? '#E24B4A' : s.contagion_type === 'spreading' ? '#F0A500' : 'rgba(240,238,232,0.6)')}
-        {s.contagion_note && (
-          <div style={{
-            fontFamily: "'DM Sans', sans-serif", fontSize: '13px',
-            color: 'rgba(240,238,232,0.5)', marginTop: '4px', lineHeight: '1.5',
-          }}>{s.contagion_note}</div>
-        )}
-        {s.affected_peers?.length > 0 && (
-          <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '4px' }}>
-            {s.affected_peers.map((peer, i) => (
-              <span key={i} style={{
-                fontFamily: "'IBM Plex Mono', monospace", fontSize: '9px',
-                color: 'rgba(240,238,232,0.4)', padding: '2px 6px',
-                background: 'rgba(255,255,255,0.03)',
-              }}>{peer}</span>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* 05 Analysis Chain — 30% Autonomy Depth Score */}
+      {/* 01 Analysis Chain - primary evidence layer */}
       {s.analysis_chain?.length > 0 && (
         <>
-          {sectionLabel(5, 'ANALYSIS CHAIN')}
+          {nextSection('ANALYSIS CHAIN')}
           <div style={{
             padding: '8px 10px', background: 'rgba(255,255,255,0.02)',
             border: '1px solid rgba(255,255,255,0.05)',
@@ -363,10 +187,10 @@ export default function SignalDetail({ selectedSignal, username = '' }) {
         </>
       )}
 
-      {/* 06 Conflicting Signals — Scenario 2 */}
+      {/* 02 Signal Balance (conflicting signals) */}
       {s.conflicting_signals?.verdict && s.conflicting_signals.verdict !== 'NEUTRAL' && (
         <>
-          {sectionLabel(6, 'SIGNAL BALANCE')}
+          {nextSection('SIGNAL BALANCE')}
           <div style={{
             padding: '8px 10px', background: 'rgba(255,255,255,0.02)',
             border: '1px solid rgba(255,255,255,0.05)',
@@ -396,7 +220,7 @@ export default function SignalDetail({ selectedSignal, username = '' }) {
                 <div style={{
                   fontFamily: "'IBM Plex Mono', monospace", fontSize: '9px',
                   color: '#3CB371', letterSpacing: '0.06em', marginBottom: '3px',
-                }}>▲ BULLISH</div>
+                }}>BULLISH</div>
                 {s.conflicting_signals.bullish.map((sig, i) => (
                   <div key={i} style={{
                     fontFamily: "'DM Sans', sans-serif", fontSize: '12px',
@@ -413,7 +237,7 @@ export default function SignalDetail({ selectedSignal, username = '' }) {
                 <div style={{
                   fontFamily: "'IBM Plex Mono', monospace", fontSize: '9px',
                   color: '#E24B4A', letterSpacing: '0.06em', marginBottom: '3px',
-                }}>▼ BEARISH</div>
+                }}>BEARISH</div>
                 {s.conflicting_signals.bearish.map((sig, i) => (
                   <div key={i} style={{
                     fontFamily: "'DM Sans', sans-serif", fontSize: '12px',
@@ -427,10 +251,167 @@ export default function SignalDetail({ selectedSignal, username = '' }) {
         </>
       )}
 
-      {/* 07 Portfolio Impact — Scenario 3 */}
+      {/* 03 Market Data + Technical (only for NSE equities) */}
+      {hasNSEData && (
+        <>
+          {nextSection('MARKET VERIFICATION')}
+          <div style={{
+            padding: '8px 10px', background: 'rgba(255,255,255,0.02)',
+            border: '1px solid rgba(255,255,255,0.05)',
+          }}>
+            {/* Bulk Deals */}
+            {bulkDeals.length > 0 && (
+              <>
+                <div style={{
+                  fontFamily: "'IBM Plex Mono', monospace", fontSize: '9px',
+                  color: 'rgba(240,238,232,0.3)', letterSpacing: '0.06em', marginBottom: '4px',
+                }}>BULK/BLOCK DEALS</div>
+                {bulkDeals.slice(0, 3).map((deal, i) => (
+                  <div key={i} style={{
+                    padding: '5px 0',
+                    borderBottom: i < Math.min(bulkDeals.length, 3) - 1 ? '1px solid rgba(255,255,255,0.03)' : 'none',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{
+                        fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px',
+                        color: 'rgba(240,238,232,0.7)',
+                      }}>{deal.client || deal.stock}</span>
+                      {deal.distress_assessment && (
+                        <span style={{
+                          fontFamily: "'IBM Plex Mono', monospace", fontSize: '9px',
+                          fontWeight: '600', padding: '1px 6px', letterSpacing: '0.04em',
+                          background: deal.distress_assessment === 'LIKELY_DISTRESS' ? 'rgba(226,75,74,0.15)' :
+                            deal.distress_assessment === 'ELEVATED_CONCERN' ? 'rgba(240,165,0,0.12)' : 'rgba(60,179,113,0.1)',
+                          color: deal.distress_assessment === 'LIKELY_DISTRESS' ? '#E24B4A' :
+                            deal.distress_assessment === 'ELEVATED_CONCERN' ? '#F0A500' : '#3CB371',
+                        }}>{deal.distress_assessment?.replace(/_/g, ' ')}</span>
+                      )}
+                    </div>
+                    <div style={{
+                      fontFamily: "'IBM Plex Mono', monospace", fontSize: '10px',
+                      color: 'rgba(240,238,232,0.45)', marginTop: '2px',
+                    }}>
+                      {deal.qty?.toLocaleString()} shares @ {'\u20B9'}{deal.price?.toLocaleString()} {'\u2022'} {deal.side}
+                      {deal.discount_pct > 0 && (
+                        <span style={{ color: '#E24B4A', fontWeight: '600' }}> {'\u2022'} {deal.discount_pct}% discount</span>
+                      )}
+                      {deal.is_promoter && (
+                        <span style={{ color: '#F0A500' }}> {'\u2022'} PROMOTER</span>
+                      )}
+                    </div>
+                    {deal.recommended_action && (
+                      <div style={{
+                        fontFamily: "'DM Sans', sans-serif", fontSize: '11px',
+                        color: 'rgba(240,238,232,0.4)', marginTop: '3px', fontStyle: 'italic',
+                      }}>{'\u2192'} {deal.recommended_action}</div>
+                    )}
+                  </div>
+                ))}
+              </>
+            )}
+
+            {/* Technical Indicators */}
+            {(technical.rsi_signal || technical.rsi) && (
+              <>
+                {bulkDeals.length > 0 && <div style={{ borderTop: '1px solid rgba(255,255,255,0.04)', margin: '6px 0' }} />}
+                <div style={{
+                  fontFamily: "'IBM Plex Mono', monospace", fontSize: '9px',
+                  color: 'rgba(240,238,232,0.3)', letterSpacing: '0.06em', marginBottom: '4px',
+                }}>TECHNICAL INDICATORS</div>
+
+                {/* 52-Week Breakout highlight */}
+                {technical.breakout_52w && (
+                  <div style={{
+                    padding: '6px 8px', marginBottom: '6px',
+                    background: technical.volume_confirmed ? 'rgba(60,179,113,0.08)' : 'rgba(240,165,0,0.06)',
+                    border: `1px solid ${technical.volume_confirmed ? 'rgba(60,179,113,0.2)' : 'rgba(240,165,0,0.15)'}`,
+                  }}>
+                    <div style={{
+                      fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px',
+                      fontWeight: '700', color: technical.volume_confirmed ? '#3CB371' : '#F0A500',
+                      marginBottom: '3px',
+                    }}>
+                      52-WEEK HIGH BREAKOUT {technical.volume_confirmed ? '(VOL CONFIRMED)' : '(UNCONFIRMED)'}
+                    </div>
+                    {dataRow('52W High', `\u20B9${technical.high_52w?.toLocaleString()}`, '#3CB371')}
+                    {dataRow('Volume Ratio', `${technical.volume_ratio}x avg`, technical.volume_ratio > 1.5 ? '#3CB371' : '#F0A500')}
+                    {technical.pattern_success_rate?.sample_size > 0 && (
+                      <>
+                        {dataRow('T+5 Win Rate', `${technical.pattern_success_rate.t5_win_rate}%`,
+                          technical.pattern_success_rate.t5_win_rate > 60 ? '#3CB371' : '#F0A500')}
+                        {dataRow('T+20 Win Rate', `${technical.pattern_success_rate.t20_win_rate}%`,
+                          technical.pattern_success_rate.t20_win_rate > 55 ? '#3CB371' : '#F0A500')}
+                        <div style={{
+                          fontFamily: "'IBM Plex Mono', monospace", fontSize: '9px',
+                          color: 'rgba(240,238,232,0.3)', marginTop: '2px',
+                        }}>{technical.pattern_success_rate.note}</div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {dataRow('RSI (14)', `${Number(technical.rsi || technical.RSI_14).toFixed(1)} ${technical.rsi_signal || ''}`,
+                  technical.rsi_signal === 'OVERBOUGHT' ? '#E24B4A' : technical.rsi_signal === 'OVERSOLD' ? '#3CB371' : 'rgba(240,238,232,0.7)')}
+                {technical.macd_class && dataRow('MACD', technical.macd_class?.replace(/_/g, ' '),
+                  technical.macd_class === 'BEARISH_CROSS' ? '#E24B4A' : '#3CB371')}
+                {technical.dma_signal && dataRow('200-DMA', technical.dma_signal?.replace(/_/g, ' '),
+                  technical.dma_signal === 'BELOW_200DMA' ? '#E24B4A' : '#3CB371')}
+                {technical.golden_cross && dataRow('Cross', 'Golden Cross (50 > 200 DMA)', '#3CB371')}
+                {technical.death_cross && dataRow('Cross', 'Death Cross (50 < 200 DMA)', '#E24B4A')}
+
+                {/* FII/DII Activity */}
+                {technical.fii_dii && (
+                  <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                    <div style={{
+                      fontFamily: "'IBM Plex Mono', monospace", fontSize: '9px',
+                      color: 'rgba(240,238,232,0.3)', letterSpacing: '0.06em', marginBottom: '3px',
+                    }}>INSTITUTIONAL FLOW</div>
+                    {technical.fii_dii.fii_sentiment && dataRow('FII/FPI',
+                      `${technical.fii_dii.fii_sentiment} (\u20B9${Math.abs(technical.fii_dii.fii_net_cr || 0).toFixed(0)} Cr)`,
+                      technical.fii_dii.fii_sentiment === 'BUYING' ? '#3CB371' : '#E24B4A')}
+                    {technical.fii_dii.dii_sentiment && dataRow('DII',
+                      `${technical.fii_dii.dii_sentiment} (\u20B9${Math.abs(technical.fii_dii.dii_net_cr || 0).toFixed(0)} Cr)`,
+                      technical.fii_dii.dii_sentiment === 'BUYING' ? '#3CB371' : '#E24B4A')}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Contagion info */}
+            {(s.contagion_type && s.contagion_type !== 'isolated') && (
+              <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                <div style={{
+                  fontFamily: "'IBM Plex Mono', monospace", fontSize: '9px',
+                  color: 'rgba(240,238,232,0.3)', letterSpacing: '0.06em', marginBottom: '3px',
+                }}>CONTAGION</div>
+                {dataRow('Type', s.contagion_type.toUpperCase(),
+                  s.contagion_type === 'systemic' ? '#E24B4A' : '#F0A500')}
+                {s.affected_peers?.length > 0 && (
+                  <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '4px' }}>
+                    {s.affected_peers.map((peer, i) => (
+                      <span key={i} style={{
+                        fontFamily: "'IBM Plex Mono', monospace", fontSize: '9px',
+                        color: 'rgba(240,238,232,0.4)', padding: '2px 6px',
+                        background: 'rgba(255,255,255,0.03)',
+                      }}>{peer}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Price data rows */}
+            {priceData.volume_spike && dataRow('Volume Spike', 'Detected', '#E24B4A')}
+            {priceData.price_change_7d_pct != null && dataRow('7D Change', `${priceData.price_change_7d_pct?.toFixed(1)}%`,
+              priceData.price_change_7d_pct < -5 ? '#E24B4A' : 'rgba(240,238,232,0.7)')}
+          </div>
+        </>
+      )}
+
+      {/* 04 Portfolio Impact */}
       {s.portfolio_impact?.materiality && s.portfolio_impact.materiality !== 'NONE' && (
         <>
-          {sectionLabel(7, 'PORTFOLIO IMPACT')}
+          {nextSection('PORTFOLIO IMPACT')}
           <div style={{
             padding: '10px', background: s.portfolio_impact.materiality === 'HIGH'
               ? 'rgba(226,75,74,0.06)' : 'rgba(240,165,0,0.04)',
@@ -448,7 +429,7 @@ export default function SignalDetail({ selectedSignal, username = '' }) {
                 color: s.portfolio_impact.total_impact_inr < 0 ? '#E24B4A' : '#3CB371',
                 fontWeight: '700',
               }}>
-                {s.portfolio_impact.total_impact_inr < 0 ? '−' : '+'}₹{Math.abs(s.portfolio_impact.total_impact_inr || 0).toLocaleString('en-IN')}
+                {s.portfolio_impact.total_impact_inr < 0 ? '\u2212' : '+'}{'\u20B9'}{Math.abs(s.portfolio_impact.total_impact_inr || 0).toLocaleString('en-IN')}
               </span>
             </div>
             {dataRow('Portfolio Impact', `${s.portfolio_impact.total_impact_pct || 0}%`,
@@ -466,7 +447,7 @@ export default function SignalDetail({ selectedSignal, username = '' }) {
                   fontFamily: "'IBM Plex Mono', monospace", fontSize: '11px',
                   color: h.estimated_impact_inr < 0 ? '#E24B4A' : '#3CB371',
                 }}>
-                  {h.estimated_impact_inr < 0 ? '−' : '+'}₹{Math.abs(h.estimated_impact_inr).toLocaleString('en-IN')} ({h.estimated_impact_pct}%)
+                  {h.estimated_impact_inr < 0 ? '\u2212' : '+'}{'\u20B9'}{Math.abs(h.estimated_impact_inr).toLocaleString('en-IN')} ({h.estimated_impact_pct}%)
                 </span>
               </div>
             ))}
@@ -474,10 +455,10 @@ export default function SignalDetail({ selectedSignal, username = '' }) {
         </>
       )}
 
-      {/* 08 Filing Citations — Scenario 1 */}
+      {/* 05 Source Citations */}
       {s.filing_citation?.length > 0 && (
         <>
-          {sectionLabel(8, 'SOURCE CITATIONS')}
+          {nextSection('SOURCE CITATIONS')}
           <div style={{
             padding: '8px 10px', background: 'rgba(255,255,255,0.02)',
             border: '1px solid rgba(255,255,255,0.05)',
@@ -489,7 +470,7 @@ export default function SignalDetail({ selectedSignal, username = '' }) {
                 borderLeft: '2px solid rgba(79,134,198,0.3)', marginBottom: '4px',
                 lineHeight: '1.4',
               }}>
-                <span style={{ color: 'rgba(79,134,198,0.8)' }}>📄 </span>
+                <span style={{ color: 'rgba(79,134,198,0.8)' }}>{'\uD83D\uDCC4'} </span>
                 {citation}
               </div>
             ))}
@@ -497,8 +478,8 @@ export default function SignalDetail({ selectedSignal, username = '' }) {
         </>
       )}
 
-      {/* 09 Recommendation + Actions */}
-      {sectionLabel(9, 'RECOMMENDATION')}
+      {/* Recommendation + Actions */}
+      {nextSection('RECOMMENDATION')}
       {s.action_recommendation?.reasoning && (
         <div style={{
           fontFamily: "'DM Sans', sans-serif", fontSize: '13px',
@@ -524,7 +505,7 @@ export default function SignalDetail({ selectedSignal, username = '' }) {
                 transition: 'all 0.2s ease',
               }}
             >
-              {isTaken ? '✓ ' : ''}{labels[action]}
+              {isTaken ? '\u2713 ' : ''}{labels[action]}
             </button>
           );
         })}
@@ -548,7 +529,7 @@ export default function SignalDetail({ selectedSignal, username = '' }) {
         </div>
       )}
 
-      {/* Hindi Audio Brief */}
+      {/* Audio Brief */}
       {s.audio_path && (
         <div style={{
           background: '#0D1117',
@@ -565,7 +546,7 @@ export default function SignalDetail({ selectedSignal, username = '' }) {
             <span style={{
               fontFamily: "'IBM Plex Mono', monospace", fontSize: '9px',
               letterSpacing: '0.1em', color: '#F0A500',
-            }}>HINDI AUDIO BRIEF</span>
+            }}>AUDIO BRIEF</span>
           </div>
           <audio
             controls
@@ -580,7 +561,7 @@ export default function SignalDetail({ selectedSignal, username = '' }) {
             fontFamily: "'IBM Plex Mono', monospace", fontSize: '8px',
             color: 'rgba(240,238,232,0.15)', marginTop: '4px',
           }}>
-            ~30s Hinglish Orpheus TTS
+            Orpheus TTS via Groq
           </div>
         </div>
       )}
