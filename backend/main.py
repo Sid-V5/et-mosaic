@@ -125,6 +125,15 @@ async def get_signals(
             return (breaking, portfolio_rank, confidence)
         signals.sort(key=signal_sort_key)
 
+        # Rebuild analysis chains on-the-fly (ensures latest 7-step format)
+        try:
+            from agents.narrator import NarratorAgent
+            narrator = NarratorAgent.__new__(NarratorAgent)
+            for s in signals:
+                s["analysis_chain"] = narrator._build_analysis_chain(s)
+        except Exception as e:
+            logger.warning(f"Could not rebuild analysis chains: {e}")
+
         # Use orchestrator's cached accuracy instance instead of creating a new one per request
         global orchestrator
         accuracy_summary = {}

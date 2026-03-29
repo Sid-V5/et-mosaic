@@ -21,7 +21,7 @@ backend/verify_fields.py
 backend/verify_portfolio.py
 backend/mosaic_traceback.txt
 backend/manual_run.py
-
+backend/check.py
 # Internal docs (not for submission)
 Build_instructions.docx
 Build_instructions_extracted.txt
@@ -32,3 +32,6 @@ graph_redesign_final.png
 
 # Playwright
 .playwright-mcp/
+
+# Temp check scripts
+backend/_*.py
