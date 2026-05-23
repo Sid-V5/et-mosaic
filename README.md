@@ -106,13 +106,13 @@ graph TD
 
 | Component | Estimated Cost |
 |-----------|------|
-| LLM (Gemini 2.5 Pro / Claude 3.5) | ~$200-500/month (usage-based) |
+| LLM (Gemini 3.5 flash / qwen 3.6 max) | ~$200-400/month (usage-based) |
 | Database (managed PostgreSQL) | ~$50-100/month |
 | Compute (cloud VM) | ~$100-200/month |
 | TTS (cloud API) | ~$20-50/month |
-| **Total** | **~$400-850/month** |
+| **Total** | **~$400-750/month** |
 
-Commercial viability: At 10,000 subscribers paying Rs 99/month, revenue is Rs 9.9L/month vs ~Rs 7L/month operating cost.
+Commercial viability: At 10,000 subscribers paying Rs 99/month, revenue is Rs 9.9L/month vs ~Rs 50k/month operating cost.
 
 ## Impact Model
 
