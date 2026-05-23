@@ -6,10 +6,10 @@ venv/
 .ipynb_checkpoints/
 .DS_Store
 
-# Runtime data (generated at startup)
+# Runtime data 
 backend/data/
 
-# Debug / migration scripts (keep local, not in repo)
+# Debug / migration scripts 
 backend/backfill_chains.py
 backend/check_data.py
 backend/check_portfolio.py
@@ -22,7 +22,7 @@ backend/verify_portfolio.py
 backend/mosaic_traceback.txt
 backend/manual_run.py
 backend/check.py
-# Internal docs (not for submission)
+# Internal docs 
 Build_instructions.docx
 Build_instructions_extracted.txt
 instructions.md
